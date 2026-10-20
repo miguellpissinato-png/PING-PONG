@@ -1,4 +1,5 @@
-/* Placar Disputa Elsys — lógica do placar, cadastro, ranking e partida ao vivo.
+/* Placar Disputa Elsys — perfis, placar, ranking, histórico de confrontos e partida ao vivo.
+   Cada pessoa entra com o próprio perfil (apelido + PIN de 4 números).
    Jogadores, partidas e a partida em andamento ficam num banco Supabase compartilhado.
    Só existe uma partida ao vivo por vez: quem a iniciou marca os pontos e todo mundo
    que abre o site acompanha o mesmo placar em tempo real. */
@@ -12,6 +13,7 @@
   var DB_KEY = 'sb_publishable_Cx_TgsTk8eKstxL6_PGg6Q_8eAmeBve';
   var DB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkcHdpZWZpa3VnZnF1bWpwZnBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI1MTM2NzQsImV4cCI6MjEwODA4OTY3NH0.PmOOIktDQJgPF_b84mh8EZ4WwK36422v8G8BZnMc8pg';
   var OWNER_KEY = 'disputa-elsys-dono';        // chave deste aparelho para a partida que ele iniciou
+  var SESSION_KEY = 'disputa-elsys-sessao';     // login deste aparelho
   var STALE_MS = 20 * 60 * 1000;                // partida sem ponto há 20 min pode ser liberada
   var HEARTBEAT_MS = 4 * 60 * 1000;             // quem marca avisa o banco que a partida segue viva
 
@@ -21,7 +23,9 @@
     seenMatches: null,   // ids de partidas já conhecidas (null até a primeira carga)
     winFlash: null,      // { match, winner, loser, until } — destaque do vencedor recém-salvo
     loaded: false, netErr: false, busy: false,
-    draft: '', msg: '', delArm: null,
+    // perfil
+    me: null, authChecked: false, authMode: 'criar', authNome: '', authPin: '', authErr: '', authBusy: false,
+    renaming: false, renameDraft: '', renameErr: '', histFiltro: '',
     picked: [], firstPick: 1, startErr: '',
     live: null,          // partida ao vivo vinda do banco (ou null)
     rt: false,           // tempo real conectado
@@ -69,6 +73,85 @@
       off = sign * (parseInt(d.slice(0, 2), 10) * 60 + (parseInt(d.slice(2, 4), 10) || 0));
     }
     return (ms - off * 60000) * 1000 + parseInt(frac, 10);
+  }
+
+  var memToken = null;
+  function loadToken() {
+    try { var t = localStorage.getItem(SESSION_KEY); if (t) return t; } catch (e) {}
+    return memToken;
+  }
+  function saveToken(t) {
+    memToken = t || null;
+    try { if (t) localStorage.setItem(SESSION_KEY, t); else localStorage.removeItem(SESSION_KEY); } catch (e) {}
+  }
+
+  /* Confere se o login guardado neste aparelho ainda vale. */
+  function checkSession() {
+    var t = loadToken();
+    if (!t) { set({ me: null, authChecked: true }); return Promise.resolve(); }
+    return rpc('meu_perfil', { p_token: t }).then(function (r) {
+      if (r && r.ok) set({ me: { id: r.id, nome: r.nome }, authChecked: true });
+      else { saveToken(null); set({ me: null, authChecked: true }); }
+    }).catch(function () {
+      // sem internet: mantém a pessoa na tela e tenta de novo depois
+      set({ authChecked: true, netErr: true });
+      setTimeout(checkSession, 4000);
+    });
+  }
+
+  var AUTH_MSG = {
+    apelido_invalido: 'Digite um apelido de 1 a 10 letras.',
+    pin_invalido: 'O PIN precisa ter 4 números.',
+    apelido_em_uso: 'Esse apelido já tem perfil. Se é você, toque em "Já tenho perfil".',
+    apelido_nao_encontrado: 'Não achamos esse apelido. Confira ou crie um perfil.',
+    sem_pin: 'Esse apelido ainda não tem PIN. Toque em "Criar perfil" para criar o seu.',
+    pin_incorreto: 'PIN errado.',
+    bloqueado: 'Muitas tentativas erradas. Espere alguns minutos e tente de novo.'
+  };
+
+  function doAuth() {
+    if (st.authBusy) return;
+    var nome = (st.authNome || '').trim().toUpperCase().slice(0, 10);
+    var pin = st.authPin || '';
+    if (!nome) { set({ authErr: AUTH_MSG.apelido_invalido }); return; }
+    if (!/^[0-9]{4}$/.test(pin)) { set({ authErr: AUTH_MSG.pin_invalido }); return; }
+    set({ authBusy: true, authErr: '' });
+    rpc(st.authMode === 'criar' ? 'criar_perfil' : 'entrar', { p_nome: nome, p_pin: pin }).then(function (r) {
+      if (r && r.ok) {
+        saveToken(r.token);
+        set({ me: { id: r.id, nome: r.nome }, authBusy: false, authPin: '', authNome: '', authErr: '', tab: 'partida' });
+        refresh();
+        return;
+      }
+      var msg = AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.';
+      if (r && r.erro === 'pin_incorreto' && r.restantes) msg += ' Restam ' + r.restantes + ' tentativa' + (r.restantes > 1 ? 's' : '') + '.';
+      if (r && r.erro === 'bloqueado' && r.segundos) msg = 'Muitas tentativas erradas. Tente de novo em ' + Math.ceil(r.segundos / 60) + ' min.';
+      set({ authBusy: false, authErr: msg, authPin: '' });
+    }).catch(function () {
+      set({ authBusy: false, authErr: 'Sem conexão. Confira a internet e tente de novo.' });
+    });
+  }
+
+  function logout() {
+    var t = loadToken();
+    saveToken(null);
+    if (t) rpc('sair', { p_token: t }).catch(function () {});
+    set({ me: null, tab: 'partida', authMode: 'entrar', renaming: false, picked: [] });
+  }
+
+  function doRename() {
+    var nome = (st.renameDraft || '').trim().toUpperCase().slice(0, 10);
+    if (!nome) { set({ renameErr: AUTH_MSG.apelido_invalido }); return; }
+    if (st.me && nome === st.me.nome) { set({ renaming: false, renameErr: '' }); return; }
+    set({ busy: true, renameErr: '' });
+    rpc('renomear_perfil', { p_token: loadToken(), p_nome: nome }).then(function (r) {
+      st.busy = false;
+      if (r && r.ok) { set({ me: { id: r.id, nome: r.nome }, renaming: false }); refresh(); return; }
+      if (r && r.erro === 'sem_sessao') { logout(); return; }
+      set({ renameErr: r && r.erro === 'apelido_em_uso' ? 'Esse apelido já é de outra pessoa.' : (AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.') });
+    }).catch(function () {
+      set({ busy: false, renameErr: 'Sem conexão. Confira a internet e tente de novo.' });
+    });
   }
 
   var memOwner = null;
@@ -247,7 +330,7 @@
     var chave = newKey();
     var a = st.picked[0], b = st.picked[1], first = st.firstPick;
     set({ busy: true, startErr: '' });
-    rpc('iniciar_partida', { p_jogador_a: a, p_jogador_b: b, p_primeiro: first, p_chave: chave })
+    rpc('iniciar_partida_logado', { p_token: loadToken(), p_jogador_a: a, p_jogador_b: b, p_primeiro: first, p_chave: chave })
       .then(function (inicio) {
         saveOwner({ chave: chave, iniciada_em: inicio });
         st.busy = false;
@@ -260,6 +343,7 @@
         refreshLive();
       })
       .catch(function (err) {
+        if (err.code === 'sem_sessao') { st.busy = false; logout(); return; }
         var msg = err.code === 'partida_em_andamento' ? 'Alguém acabou de iniciar uma partida. Acompanhe ao vivo.'
           : err.code === 'jogador_invalido' ? 'Um dos jogadores saiu da lista. Escolha de novo.'
           : 'Não deu para iniciar. Confira a internet e tente de novo.';
@@ -308,7 +392,7 @@
     function t(id, label) {
       return '<button class="tab' + (st.tab === id ? ' on' : '') + '" type="button" data-act="tab" data-v="' + id + '">' + label + '</button>';
     }
-    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('jogadores', 'JOGADORES') + t('ranking', 'RANKING') + '</nav>';
+    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('perfil', 'PERFIL') + '</nav>';
     if (st.tab !== 'partida') bar += liveBadge();
     if (st.netErr) bar += '<div class="net" role="status">SEM CONEXÃO COM O PLACAR ONLINE · TENTANDO DE NOVO</div>';
     return bar;
@@ -337,8 +421,8 @@
       });
       h += '</div>';
     } else {
-      h += '<div class="box empty-box"><div class="msg">NENHUM JOGADOR CADASTRADO</div>' +
-        '<button class="btn go" type="button" data-act="tab" data-v="jogadores">CADASTRAR JOGADORES</button></div>';
+      h += '<div class="box empty-box"><div class="msg">NENHUM JOGADOR AINDA</div>' +
+        '<div class="note">Cada jogador entra no site e cria o próprio perfil. Quem tem perfil aparece aqui.</div></div>';
     }
     if (p.length === 2) {
       h += '<div class="stack"><div class="lbl">QUEM SACA NO 1º PONTO</div><div class="row">' +
@@ -423,41 +507,161 @@
     return h + '</section>';
   }
 
-  function viewJogadores() {
-    var inLive = {};
-    if (st.live) { inLive[st.live.jogador_a] = true; inLive[st.live.jogador_b] = true; }
-    var h = '<section>';
-    h += '<form id="addForm" class="add-form">' +
-      '<label class="lbl" for="novoJogador">NOVO JOGADOR</label>' +
-      '<div class="row"><input id="novoJogador" class="field" type="text" placeholder="APELIDO" maxlength="10" autocomplete="off" value="' + esc(st.draft) + '">' +
-      '<button class="btn go" type="submit"' + (st.busy ? ' disabled' : '') + '>' + (st.busy ? 'SALVANDO' : 'ADICIONAR') + '</button></div>' +
-      '<div id="msg" class="err">' + esc(st.msg) + '</div>' +
+  /* ---------- números de cada jogador e confrontos ---------- */
+  function rankRows() {
+    var all = stats();
+    var rows = st.players.map(function (p) {
+      var s = Object.assign({ v: 0, d: 0, gp: 0, gc: 0, pts: 0 }, all[p.id]);
+      return { id: p.id, name: p.name, rank: s.v, j: s.v + s.d, d: s.d, sj: s.gp - s.gc, feitos: s.pts };
+    });
+    rows.sort(function (x, y) { return (y.rank - x.rank) || (y.sj - x.sj) || (y.feitos - x.feitos) || x.name.localeCompare(y.name); });
+    return rows;
+  }
+
+  // confrontos: uma linha por dupla que já se enfrentou
+  function pairs() {
+    var map = {};
+    st.matches.forEach(function (m) {
+      var lo = Math.min(m.jogador_a, m.jogador_b), hi = Math.max(m.jogador_a, m.jogador_b), k = lo + '-' + hi;
+      var p = map[k] || (map[k] = { a: lo, b: hi, winsA: 0, winsB: 0, count: 0, last: m.criado_em, matches: [] });
+      var winner = m.jogos_a > m.jogos_b ? m.jogador_a : m.jogador_b;
+      if (winner === lo) p.winsA += 1; else p.winsB += 1;
+      p.count += 1; p.matches.push(m);
+    });
+    return Object.keys(map).map(function (k) { return map[k]; })
+      .sort(function (x, y) { return tsMicros(y.last) - tsMicros(x.last); }); // st.matches vem do mais recente
+  }
+
+  function fmtWhen(s) {
+    var us = tsMicros(s);
+    if (isNaN(us)) return '';
+    var d = new Date(us / 1000);
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' +
+           d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function totalWins(id) { var s = stats()[id]; return s ? s.v : 0; }
+
+  // linha "A  3 x 1  B" com o líder em destaque
+  function vsRow(aName, aWins, bName, bWins, big) {
+    return '<div class="vsrow' + (big ? ' big' : '') + '">' +
+      '<span class="n left' + (aWins > bWins ? ' lead' : (aWins < bWins ? ' trail' : '')) + '">' + esc(aName) + '</span>' +
+      '<span class="sc rgb">' + aWins + ' x ' + bWins + '</span>' +
+      '<span class="n right' + (bWins > aWins ? ' lead' : (bWins < aWins ? ' trail' : '')) + '">' + esc(bName) + '</span></div>';
+  }
+
+  /* ---------- boas-vindas: criar perfil ou entrar ---------- */
+  function viewWelcome() {
+    var criar = st.authMode === 'criar';
+    var h = '<section class="welcome">';
+    h += '<div class="welcome-hero">' +
+      '<div class="kicker">BEM-VINDO À DISPUTA</div>' +
+      '<h2 class="rgb glow welcome-title">VAMOS JOGAR?</h2>' +
+      '<p class="note">' + (criar ? 'Crie seu perfil com o apelido que você usa na mesa e um PIN de 4 números.'
+                                  : 'Entre com seu apelido e seu PIN de 4 números.') + '</p></div>';
+    h += '<div class="welcome-side"><form id="authForm" class="box auth-form" novalidate>' +
+      '<label class="lbl" for="authNome">APELIDO</label>' +
+      '<input id="authNome" class="field" type="text" maxlength="10" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="EX: RAIO" value="' + esc(st.authNome) + '">' +
+      '<label class="lbl" for="authPin">PIN · 4 NÚMEROS</label>' +
+      '<input id="authPin" class="field pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="' + (criar ? 'new-password' : 'current-password') + '" placeholder="••••" value="' + esc(st.authPin) + '">' +
+      '<div id="authErr" class="err" role="alert">' + esc(st.authErr) + '</div>' +
+      '<button class="btn go start" type="submit"' + (st.authBusy ? ' disabled' : '') + '>' +
+        (st.authBusy ? 'AGUARDE...' : (criar ? 'CRIAR PERFIL' : 'ENTRAR')) + '</button>' +
       '</form>';
-    h += '<div class="lbl">CADASTRADOS · ' + st.players.length + '</div>';
-    h += '<div class="people">';
+    h += '<button class="link" type="button" data-act="authMode" data-v="' + (criar ? 'entrar' : 'criar') + '">' +
+      (criar ? 'Já tenho perfil · <b>ENTRAR</b>' : 'Ainda não tenho perfil · <b>CRIAR PERFIL</b>') + '</button>';
+    if (criar) h += '<div class="legend">Seu apelido aparece no ranking e no histórico. O PIN serve só para entrar no seu perfil; não use a senha de outro lugar.</div>';
+    return h + '</div></section>';
+  }
+
+  /* ---------- perfil de quem está logado ---------- */
+  function viewPerfil() {
+    var me = st.me;
+    var rows = rankRows();
+    var pos = 0, mine = { rank: 0, j: 0, d: 0 };
+    rows.forEach(function (r, i) { if (r.id === me.id) { pos = i + 1; mine = r; } });
+    var h = '<section>';
+    h += '<div class="box profile-head">';
+    if (st.renaming) {
+      h += '<form id="renameForm" class="add-form">' +
+        '<label class="lbl" for="renameNome">NOVO APELIDO</label>' +
+        '<div class="row"><input id="renameNome" class="field" type="text" maxlength="10" autocomplete="off" spellcheck="false" value="' + esc(st.renameDraft) + '">' +
+        '<button class="btn go" type="submit"' + (st.busy ? ' disabled' : '') + '>SALVAR</button></div>' +
+        '<div class="err" role="alert">' + esc(st.renameErr) + '</div>' +
+        '<div class="row"><button class="btn ghost" type="button" data-act="renameCancel">CANCELAR</button></div></form>';
+    } else {
+      h += '<div class="lbl">SEU APELIDO</div>' +
+        '<div class="profile-name rgb glow">' + esc(me.nome) + '</div>' +
+        '<button class="btn ghost" type="button" data-act="renameOpen">MUDAR APELIDO</button>';
+    }
+    h += '</div>';
+    h += '<div class="tiles">' +
+      '<div class="box tile"><div class="num">' + mine.j + '</div><div class="lbl">PARTIDAS</div></div>' +
+      '<div class="box tile"><div class="num win">' + mine.rank + '</div><div class="lbl">VITÓRIAS</div></div>' +
+      '<div class="box tile"><div class="num">' + mine.d + '</div><div class="lbl">DERROTAS</div></div>' +
+      '<div class="box tile"><div class="num">' + (mine.j ? pos + 'º' : '—') + '</div><div class="lbl">NO RANKING</div></div>' +
+      '</div>';
+
+    var myPairs = pairs().filter(function (p) { return p.a === me.id || p.b === me.id; });
+    h += '<div class="two-col"><div class="stack"><div class="lbl">CONFRONTOS · VOCÊ CONTRA CADA UM</div>';
+    myPairs.forEach(function (p) {
+      var meFirst = p.a === me.id;
+      var opp = meFirst ? p.b : p.a, myW = meFirst ? p.winsA : p.winsB, opW = meFirst ? p.winsB : p.winsA;
+      h += '<div class="box pair">' + vsRow(me.nome, myW, nameOf(opp), opW) +
+        '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre vocês</div></div>';
+    });
+    if (!myPairs.length) h += '<div class="note dim">Você ainda não jogou nenhuma partida. Quando jogar, seus confrontos aparecem aqui.</div>';
+    h += '</div>';
+
+    var myMatches = st.matches.filter(function (m) { return m.jogador_a === me.id || m.jogador_b === me.id; }).slice(0, 10);
+    h += '<div class="stack"><div class="lbl">SUAS ÚLTIMAS PARTIDAS</div>';
+    myMatches.forEach(function (m) {
+      var meA = m.jogador_a === me.id;
+      var myG = meA ? m.jogos_a : m.jogos_b, opG = meA ? m.jogos_b : m.jogos_a, opp = meA ? m.jogador_b : m.jogador_a;
+      var won = myG > opG;
+      h += '<div class="match-line"><span class="res ' + (won ? 'w' : 'l') + '">' + (won ? 'VENCEU' : 'PERDEU') + '</span>' +
+        '<span class="vt">' + myG + ' x ' + opG + ' contra ' + esc(nameOf(opp)) + '</span>' +
+        '<span class="vt when">' + fmtWhen(m.criado_em) + '</span></div>';
+    });
+    if (!myMatches.length) h += '<div class="note dim">Nenhuma partida ainda.</div>';
+    h += '</div></div>';
+    h += '<div class="grow"></div><div class="row center"><button class="btn ghost" type="button" data-act="logout">SAIR DESTE APARELHO</button></div>';
+    return h + '</section>';
+  }
+
+  /* ---------- histórico público de confrontos ---------- */
+  function viewHistorico() {
+    var filtro = Number(st.histFiltro) || 0;
+    var list = pairs().filter(function (p) { return !filtro || p.a === filtro || p.b === filtro; });
+    var h = '<section>';
+    h += '<div class="filter"><label class="lbl" for="histFiltro">VER CONFRONTOS DE</label>' +
+      '<select id="histFiltro" class="field select"><option value="">TODOS OS JOGADORES</option>';
     st.players.forEach(function (p) {
-      var armed = st.delArm === p.id;
-      var locked = !!inLive[p.id];
-      h += '<div class="box person"><span class="nm">' + esc(p.name) + '</span>' +
-        '<button class="btn ghost x' + (armed ? ' warn' : '') + '" type="button" aria-label="Remover ' + esc(p.name) + '" data-act="del" data-v="' + p.id + '"' + (locked ? ' disabled' : '') + '>' + (armed ? 'REMOVER?' : 'X') + '</button>' +
+      h += '<option value="' + p.id + '"' + (filtro === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+    });
+    h += '</select></div>';
+    h += '<div class="pairs">';
+    list.forEach(function (p) {
+      // com filtro, o jogador escolhido fica sempre à esquerda
+      var swap = filtro && p.b === filtro;
+      var a = swap ? p.b : p.a, b = swap ? p.a : p.b, wa = swap ? p.winsB : p.winsA, wb = swap ? p.winsA : p.winsB;
+      var ta = totalWins(a), tb = totalWins(b);
+      h += '<div class="box pair">' + vsRow(nameOf(a), wa, nameOf(b), wb, true) +
+        '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre eles · última ' + fmtWhen(p.last) + '</div>' +
+        '<div class="pair-total">Ranking geral: <span class="' + (ta > tb ? 'lead' : '') + '">' + esc(nameOf(a)) + ' ' + ta + ' PTS</span> · ' +
+          '<span class="' + (tb > ta ? 'lead' : '') + '">' + esc(nameOf(b)) + ' ' + tb + ' PTS</span></div>' +
         '</div>';
     });
     h += '</div>';
-    if (!st.loaded) h += '<div class="note dim blink">Carregando jogadores...</div>';
-    else if (!st.players.length) h += '<div class="note dim">Ninguém cadastrado ainda. Digite um apelido acima.</div>';
-    h += '<div class="legend">Todo mundo que abre o placar vê esta lista. Remover tira o jogador da lista e do ranking para todos; as partidas dele continuam no histórico. Quem está jogando ao vivo não pode ser removido.</div>';
+    if (!st.loaded) h += '<div class="note dim blink">Carregando histórico...</div>';
+    else if (!list.length) h += '<div class="note dim">' + (filtro ? 'Esse jogador ainda não jogou nenhuma partida.' : 'Nenhuma partida registrada ainda.') + '</div>';
+    h += '<div class="legend">O placar grande mostra quantas partidas cada um venceu contra o outro. PTS no ranking geral = vitórias contra todos (1 ponto por vitória).</div>';
     return h + '</section>';
   }
 
   function viewRanking() {
-    var all = stats();
     var flash = st.winFlash && Date.now() < st.winFlash.until ? st.winFlash : null;
-    var rows = st.players.map(function (p) {
-      var s = Object.assign({ v: 0, d: 0, gp: 0, gc: 0, pts: 0 }, all[p.id]);
-      // pontos no ranking: 1 por vitória
-      return { id: p.id, name: p.name, rank: s.v, j: s.v + s.d, d: s.d, sj: s.gp - s.gc, feitos: s.pts };
-    });
-    rows.sort(function (x, y) { return (y.rank - x.rank) || (y.sj - x.sj) || (y.feitos - x.feitos) || x.name.localeCompare(y.name); });
+    var rows = rankRows(); // pontos no ranking: 1 por vitória
 
     var h = '<section>';
     if (flash) {
@@ -470,7 +674,8 @@
     rows.forEach(function (r, i) {
       var top = i === 0 && r.rank > 0;
       var won = flash && flash.winner === r.id;
-      h += '<div class="rk line' + (top ? ' top' : '') + (won ? ' won' : '') + '"><span>' + (i + 1) + 'º</span><span class="n">' + esc(r.name) + '</span>' +
+      var isMe = st.me && st.me.id === r.id;
+      h += '<div class="rk line' + (top ? ' top' : '') + (won ? ' won' : '') + (isMe ? ' me' : '') + '"><span>' + (i + 1) + 'º</span><span class="n">' + esc(r.name) + '</span>' +
         '<span class="r pts">' + (won ? '<span class="plus blink">+1</span>' : '') + r.rank + '</span>' +
         '<span class="r">' + r.j + '</span><span class="r">' + r.d + '</span>' +
         '<span class="r">' + (r.sj > 0 ? '+' + r.sj : r.sj) + '</span></div>';
@@ -496,20 +701,28 @@
   var tabbar = document.getElementById('tabbar');
 
   function render() {
-    var body;
-    if (st.tab === 'jogadores') body = viewJogadores();
-    else if (st.tab === 'ranking') body = viewRanking();
-    else body = (st.playing || st.live) ? viewBoard() : viewSetup();
-    // a tela se atualiza sozinha; quem está digitando um apelido não perde o que digitou
-    var typing = document.activeElement && document.activeElement.id === 'novoJogador';
-    var caret = typing ? document.activeElement.selectionStart : null;
+    var body, bar = '';
+    if (!st.authChecked) body = '<section><div class="note dim blink">Carregando...</div></section>';
+    else if (!st.me) body = viewWelcome();
+    else {
+      bar = tabs();
+      if (st.tab === 'ranking') body = viewRanking();
+      else if (st.tab === 'historico') body = viewHistorico();
+      else if (st.tab === 'perfil') body = viewPerfil();
+      else body = (st.playing || st.live) ? viewBoard() : viewSetup();
+    }
+    // a tela se atualiza sozinha; quem está digitando não perde o texto nem o cursor
+    var act = document.activeElement;
+    var typingId = act && act.tagName === 'INPUT' && act.id ? act.id : null;
+    var caret = null;
+    try { caret = typingId ? act.selectionStart : null; } catch (e) {}
     var scroll = view.scrollTop;
-    tabbar.innerHTML = tabs();
+    tabbar.innerHTML = bar;
     view.innerHTML = body;
     view.scrollTop = scroll;
-    if (typing) {
-      var inp = document.getElementById('novoJogador');
-      if (inp) { inp.focus(); try { inp.setSelectionRange(caret, caret); } catch (e) {} }
+    if (typingId) {
+      var inp = document.getElementById(typingId);
+      if (inp) { inp.focus(); try { if (caret !== null) inp.setSelectionRange(caret, caret); } catch (e) {} }
     }
   }
 
@@ -524,7 +737,20 @@
 
     switch (act) {
       case 'tab':
-        set({ tab: v, delArm: null, quitArm: false });
+        set({ tab: v, quitArm: false, renaming: false });
+        break;
+      case 'authMode':
+        set({ authMode: v, authErr: '', authPin: '' });
+        break;
+      case 'logout':
+        logout();
+        break;
+      case 'renameOpen':
+        set({ renaming: true, renameDraft: st.me ? st.me.nome : '', renameErr: '' });
+        var ri = document.getElementById('renameNome'); if (ri) { ri.focus(); ri.select(); }
+        break;
+      case 'renameCancel':
+        set({ renaming: false, renameErr: '' });
         break;
       case 'pick': {
         if (st.live) return;
@@ -570,49 +796,34 @@
       case 'release':
         rpc('liberar_partida_parada', {}).then(refreshLive).catch(function () { refreshLive(); });
         break;
-      case 'del': {
-        var pid = Number(v);
-        if (st.delArm !== pid) { set({ delArm: pid }); break; }
-        set({ busy: true, delArm: null });
-        rpc('remover_jogador', { p_id: pid })
-          .then(function () { st.busy = false; return refresh(); })
-          .catch(function () { set({ busy: false, msg: 'Não deu para remover. Confira a internet e tente de novo.' }); });
-        break;
-      }
     }
   }
   view.addEventListener('click', onClick);
   tabbar.addEventListener('click', onClick);
 
   view.addEventListener('input', function (e) {
-    if (e.target.id !== 'novoJogador') return;
-    st.draft = e.target.value.toUpperCase().slice(0, 10);
-    var m = document.getElementById('msg');
-    if (m) m.textContent = '';
-    st.msg = '';
+    var el = e.target;
+    if (el.id === 'authNome') { st.authNome = el.value.toUpperCase().slice(0, 10); clearMsg('authErr', 'authErr'); }
+    else if (el.id === 'authPin') {
+      var digits = el.value.replace(/\D/g, '').slice(0, 4);
+      if (el.value !== digits) el.value = digits;
+      st.authPin = digits; clearMsg('authErr', 'authErr');
+    }
+    else if (el.id === 'renameNome') { st.renameDraft = el.value.toUpperCase().slice(0, 10); }
+  });
+  function clearMsg(id, key) {
+    if (!st[key]) return;
+    st[key] = '';
+    var m = document.getElementById(id); if (m) m.textContent = '';
+  }
+  view.addEventListener('change', function (e) {
+    if (e.target.id === 'histFiltro') set({ histFiltro: e.target.value });
   });
 
   view.addEventListener('submit', function (e) {
-    if (e.target.id !== 'addForm') return;
     e.preventDefault();
-    if (st.busy) return;
-    var nm = (st.draft || '').trim().toUpperCase().slice(0, 10);
-    if (!nm) { set({ msg: 'Digite um apelido.' }); return; }
-    if (st.players.some(function (p) { return p.name === nm; })) { set({ msg: nm + ' já está na lista.' }); return; }
-    set({ busy: true, msg: '' });
-    api('jogadores', { method: 'POST', prefer: 'return=minimal', body: { nome: nm } })
-      .then(function () {
-        st.busy = false; st.draft = '';
-        return refresh().then(function () {
-          render();
-          var inp = document.getElementById('novoJogador');
-          if (inp) inp.focus();
-        });
-      })
-      .catch(function (err) {
-        var dup = err && err.status === 409;
-        set({ busy: false, msg: dup ? nm + ' já está na lista.' : 'Não deu para cadastrar. Confira a internet e tente de novo.' });
-      });
+    if (e.target.id === 'authForm') doAuth();
+    else if (e.target.id === 'renameForm') doRename();
   });
 
   /* ---------- tempo real ---------- */
@@ -648,6 +859,7 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { refreshLive(); refresh(); } });
 
   render();
+  checkSession();
   refresh();
   refreshLive();
   startRealtime();
