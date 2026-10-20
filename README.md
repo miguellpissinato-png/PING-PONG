@@ -14,7 +14,13 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
 
 Abra o `index.html` no navegador. Não precisa instalar nada.
 
-A tela foi desenhada em 720 × 1280 (retrato) e se ajusta ao tamanho da janela. Fica melhor num monitor ou TV na vertical.
+A tela ocupa a janela inteira e se reorganiza conforme o tamanho e a orientação:
+
+- **Em pé (celular, tablet, TV na vertical):** os dois jogadores ficam um em cima do outro, com os botões − e + ao lado dos números.
+- **Deitada (TV, notebook, monitor):** o cabeçalho vira uma linha só, os jogadores ficam lado a lado e o status divide a barra de baixo com os botões. No ranking, a tabela e as últimas partidas ficam lado a lado.
+- **Telas baixas (celular deitado):** as raquetes, o subtítulo e o rodapé saem para o placar caber inteiro.
+
+Textos, números e botões crescem e encolhem com a tela, e os botões nunca ficam menores que o tamanho mínimo de toque.
 
 ### Publicar no GitHub Pages
 
