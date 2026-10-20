@@ -115,14 +115,14 @@
     var p = st.picked;
     var slot1 = p[0] ? nameOf(p[0]) : '---';
     var slot2 = p[1] ? nameOf(p[1]) : '---';
-    var h = '<section class="view">';
+    var h = '<section>';
     h += '<div class="slots">' +
       '<div class="box slot"><div class="lbl">1P</div><div class="glow nm">' + esc(slot1) + '</div></div>' +
       '<div class="vs">VS</div>' +
       '<div class="box slot"><div class="lbl">2P</div><div class="glow nm">' + esc(slot2) + '</div></div>' +
       '</div>';
     if (st.players.length) {
-      h += '<div class="vt" style="font-size:26px;color:var(--ink-soft)">Toque em 2 jogadores. O primeiro vira o 1P.</div>';
+      h += '<div class="note">Toque em 2 jogadores. O primeiro vira o 1P.</div>';
       h += '<div class="scroll roster">';
       st.players.forEach(function (pl) {
         var at = p.indexOf(pl.id);
@@ -132,12 +132,11 @@
       });
       h += '</div>';
     } else {
-      h += '<div class="box" style="display:flex;flex-direction:column;align-items:center;gap:20px;padding:32px;text-align:center">' +
-        '<div style="font-size:15px;line-height:1.6">NENHUM JOGADOR CADASTRADO</div>' +
+      h += '<div class="box empty-box"><div class="msg">NENHUM JOGADOR CADASTRADO</div>' +
         '<button class="btn go" type="button" data-act="tab" data-v="jogadores">CADASTRAR JOGADORES</button></div>';
     }
     if (p.length === 2) {
-      h += '<div style="display:flex;flex-direction:column;gap:12px"><div class="lbl">QUEM SACA NO 1º PONTO</div><div class="row">' +
+      h += '<div class="stack"><div class="lbl">QUEM SACA NO 1º PONTO</div><div class="row">' +
         '<button class="opt' + (st.firstPick === 1 ? ' on' : '') + '" type="button" data-act="fp" data-v="1">' + esc(slot1) + '</button>' +
         '<button class="opt' + (st.firstPick === 2 ? ' on' : '') + '" type="button" data-act="fp" data-v="2">' + esc(slot2) + '</button>' +
         '</div></div>';
@@ -148,21 +147,23 @@
   }
 
   function serveTag() {
-    return '<div class="blink serve"><svg width="18" height="18" viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true"><path fill="#f4f7ff" d="M1 0h4v1h-4zM0 1h6v4h-6zM1 5h4v1h-4z"/></svg>SAQUE</div>';
+    return '<div class="blink serve"><svg viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true"><path fill="#f4f7ff" d="M1 0h4v1h-4zM0 1h6v4h-6zM1 5h4v1h-4z"/></svg>SAQUE</div>';
   }
 
   function playerCard(n, name, score, gp, serving, lock) {
     var pips = [0, 1].map(function (i) { return '<div class="pip' + (i < gp ? ' on' : '') + '"></div>'; }).join('');
     return '<div class="box player">' +
-      '<div class="lbl" style="font-size:11px">' + n + 'P</div>' +
+      '<div class="tag">' + n + 'P</div>' +
       '<div class="nm">' + esc(name) + '</div>' +
-      '<div class="rgb glow digits">' + pad(score) + '</div>' +
-      '<div class="row">' +
-        '<button class="btn big" type="button" aria-label="Tirar ponto do ' + n + 'P" data-act="sub" data-v="' + n + '">-</button>' +
-        '<button class="btn big" type="button" aria-label="Ponto para o ' + n + 'P" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') + '>+</button>' +
+      '<div class="score-row">' +
+        '<div class="rgb glow digits">' + pad(score) + '</div>' +
+        '<button class="btn big minus" type="button" aria-label="Tirar ponto do ' + n + 'P" data-act="sub" data-v="' + n + '">-</button>' +
+        '<button class="btn big plus" type="button" aria-label="Ponto para o ' + n + 'P" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') + '>+</button>' +
       '</div>' +
-      '<div class="games"><span class="vt">JOGOS</span>' + pips + '</div>' +
-      '<div class="serve-slot">' + (serving ? serveTag() : '') + '</div>' +
+      '<div class="meta">' +
+        '<div class="games"><span class="vt">JOGOS</span>' + pips + '</div>' +
+        '<div class="serve-slot">' + (serving ? serveTag() : '') + '</div>' +
+      '</div>' +
       '</div>';
   }
 
@@ -176,56 +177,53 @@
     else if (g.s1 >= 10 && g.s1 > g.s2) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name1; }
     else if (g.s2 >= 10 && g.s2 > g.s1) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name2; }
 
-    var h = '<section class="view"><div class="board">';
+    var h = '<section><div class="board">';
     h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, !!g.w);
-    h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, !!g.w);
     h += '<div class="vs" aria-hidden="true">VS</div>';
+    h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, !!g.w);
     if (g.w) {
       h += '<div class="banner">' +
-        '<div class="vt" style="font-size:28px;color:var(--ink-dim);letter-spacing:4px">' + (g.champ ? 'CAMPEÃO DA DISPUTA' : 'VENCEDOR DO JOGO') + '</div>' +
-        '<div class="rgb glow" style="font-size:34px;line-height:1.3;word-break:break-all">' + esc(g.wName) + '</div>' +
-        '<div class="vt" style="font-size:32px;letter-spacing:2px">' + (g.champ ? ('JOGOS ' + g.gp1 + ' x ' + g.gp2) : (pad(g.s1) + ' x ' + pad(g.s2))) + '</div>' +
+        '<div class="kicker">' + (g.champ ? 'CAMPEÃO DA DISPUTA' : 'VENCEDOR DO JOGO') + '</div>' +
+        '<div class="rgb glow who">' + esc(g.wName) + '</div>' +
+        '<div class="score">' + (g.champ ? ('JOGOS ' + g.gp1 + ' x ' + g.gp2) : (pad(g.s1) + ' x ' + pad(g.s2))) + '</div>' +
         '<div class="row center">' +
           '<button class="btn ghost" type="button" data-act="undo">DESFAZER</button>' +
           '<button class="btn go" type="button" data-act="banner">' + (g.champ ? 'SALVAR NO RANKING' : 'PRÓXIMO JOGO') + '</button>' +
         '</div></div>';
     }
     h += '</div>';
-    h += '<div class="status"><div class="vt" style="font-size:22px;color:#7d92d6;letter-spacing:4px">STATUS</div>' +
-      '<div style="font-size:20px;letter-spacing:2px;text-align:center">' + esc(title) + '</div>' +
-      '<div class="vt" style="font-size:28px;color:var(--ink-soft);text-align:center">' + esc(sub) + '</div></div>';
-    h += '<div class="row center">' +
-      '<button class="btn ghost" type="button" data-act="resetPoints">ZERAR PONTOS</button>' +
-      '<button class="btn ghost' + (st.quitArm ? ' warn' : '') + '" type="button" data-act="quit">' + (st.quitArm ? 'CONFIRMAR?' : 'ENCERRAR') + '</button>' +
-      '</div>';
+    h += '<div class="bottom-bar">' +
+      '<div class="status"><div class="k">STATUS</div><div class="t">' + esc(title) + '</div><div class="s">' + esc(sub) + '</div></div>' +
+      '<div class="row center actions">' +
+        '<button class="btn ghost" type="button" data-act="resetPoints">ZERAR PONTOS</button>' +
+        '<button class="btn ghost' + (st.quitArm ? ' warn' : '') + '" type="button" data-act="quit">' + (st.quitArm ? 'CONFIRMAR?' : 'ENCERRAR') + '</button>' +
+      '</div></div>';
     return h + '</section>';
   }
 
   function viewJogadores() {
-    var h = '<section class="view">';
-    h += '<form id="addForm" style="display:flex;flex-direction:column;gap:12px;margin:0">' +
+    var h = '<section>';
+    h += '<form id="addForm" class="add-form">' +
       '<label class="lbl" for="novoJogador">NOVO JOGADOR</label>' +
       '<div class="row"><input id="novoJogador" class="field" type="text" placeholder="APELIDO" maxlength="10" autocomplete="off" value="' + esc(st.draft) + '">' +
-      '<button class="btn go" type="submit" style="min-height:68px">ADICIONAR</button></div>' +
-      '<div id="msg" class="vt" style="font-size:24px;color:#ff8f97;min-height:24px">' + esc(st.msg) + '</div>' +
+      '<button class="btn go" type="submit">ADICIONAR</button></div>' +
+      '<div id="msg" class="err">' + esc(st.msg) + '</div>' +
       '</form>';
     if (st.sample) {
-      h += '<div class="box" style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px">' +
-        '<div class="vt" style="font-size:24px;color:var(--ink-soft);line-height:1.1">Jogadores e ranking atuais são exemplos.</div>' +
+      h += '<div class="box sample-box"><div class="note">Jogadores e ranking atuais são exemplos.</div>' +
         '<button class="btn ghost" type="button" data-act="clearSample">APAGAR</button></div>';
     }
     h += '<div class="lbl">CADASTRADOS · ' + st.players.length + '</div>';
-    h += '<div class="scroll grow" style="min-height:0;max-height:470px;display:flex;flex-direction:column;gap:10px;padding:4px">';
+    h += '<div class="people">';
     st.players.forEach(function (p) {
       var armed = st.delArm === p.id;
       var locked = st.playing && (p.id === st.m1 || p.id === st.m2);
-      h += '<div class="box" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 6px 6px 18px;min-height:60px">' +
-        '<span style="font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.name) + '</span>' +
+      h += '<div class="box person"><span class="nm">' + esc(p.name) + '</span>' +
         '<button class="btn ghost x' + (armed ? ' warn' : '') + '" type="button" aria-label="Remover ' + esc(p.name) + '" data-act="del" data-v="' + p.id + '"' + (locked ? ' disabled' : '') + '>' + (armed ? 'REMOVER?' : 'X') + '</button>' +
         '</div>';
     });
-    if (!st.players.length) h += '<div class="vt" style="font-size:26px;color:#7d92d6">Ninguém cadastrado ainda. Digite um apelido acima.</div>';
     h += '</div>';
+    if (!st.players.length) h += '<div class="note dim">Ninguém cadastrado ainda. Digite um apelido acima.</div>';
     return h + '</section>';
   }
 
@@ -236,43 +234,43 @@
     });
     rows.sort(function (x, y) { return (y.v - x.v) || (y.sj - x.sj) || (y.pts - x.pts) || x.name.localeCompare(y.name); });
 
-    var h = '<section class="view">';
-    h += '<div class="box" style="display:flex;flex-direction:column">' +
-      '<div class="rk head"><span>#</span><span>JOGADOR</span><span class="r">V</span><span class="r">D</span><span class="r">SJ</span><span class="r">PTS</span></div>' +
-      '<div class="scroll" style="max-height:420px">';
+    var h = '<section><div class="rank-layout"><div class="stack">';
+    h += '<div class="box rank-box">' +
+      '<div class="rk head"><span>#</span><span>JOGADOR</span><span class="r">V</span><span class="r">D</span><span class="r">SJ</span><span class="r">PTS</span></div>';
     rows.forEach(function (r, i) {
       var top = i === 0 && (r.v > 0 || r.pts > 0);
       h += '<div class="rk line' + (top ? ' top' : '') + '"><span>' + (i + 1) + 'º</span><span class="n">' + esc(r.name) + '</span>' +
         '<span class="r">' + r.v + '</span><span class="r">' + r.d + '</span>' +
         '<span class="r">' + (r.sj > 0 ? '+' + r.sj : r.sj) + '</span><span class="r">' + r.pts + '</span></div>';
     });
+    if (!rows.length) h += '<div class="note dim" style="padding: var(--gap)">Cadastre jogadores para montar o ranking.</div>';
     h += '</div>';
-    if (!rows.length) h += '<div class="vt" style="font-size:26px;color:#7d92d6;padding:20px 16px">Cadastre jogadores para montar o ranking.</div>';
-    h += '</div>';
-    h += '<div class="vt" style="font-size:22px;color:#7d92d6;letter-spacing:1px">V vitórias · D derrotas · SJ saldo de jogos · PTS pontos feitos</div>';
-    h += '<div style="display:flex;flex-direction:column;gap:10px"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
+    h += '<div class="legend">V vitórias · D derrotas · SJ saldo de jogos · PTS pontos feitos</div></div>';
+    h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
     st.history.forEach(function (m) {
-      h += '<div class="vt" style="font-size:26px;color:var(--ink-soft)">' + esc(m.a + '  ' + m.ga + ' x ' + m.gb + '  ' + m.b) + '</div>';
+      h += '<div class="note">' + esc(m.a + '  ' + m.ga + ' x ' + m.gb + '  ' + m.b) + '</div>';
     });
-    if (!st.history.length) h += '<div class="vt" style="font-size:26px;color:#7d92d6">Nenhuma partida registrada.</div>';
-    h += '</div><div class="grow"></div>';
+    if (!st.history.length) h += '<div class="note dim">Nenhuma partida registrada.</div>';
+    h += '</div></div><div class="grow"></div>';
     h += '<div class="row center"><button class="btn ghost' + (st.resetArm ? ' warn' : '') + '" type="button" data-act="resetRank">' +
       (st.resetArm ? 'CONFIRMAR ZERAR?' : 'ZERAR RANKING') + '</button></div>';
     return h + '</section>';
   }
 
   var view = document.getElementById('view');
+  var tabbar = document.getElementById('tabbar');
 
   function render() {
     var body;
     if (st.tab === 'jogadores') body = viewJogadores();
     else if (st.tab === 'ranking') body = viewRanking();
     else body = st.playing ? viewBoard() : viewSetup();
-    view.innerHTML = tabs() + body;
+    tabbar.innerHTML = tabs();
+    view.innerHTML = body;
   }
 
   /* ---------- ações ---------- */
-  view.addEventListener('click', function (e) {
+  function onClick(e) {
     var el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
     var act = el.getAttribute('data-act');
@@ -337,7 +335,9 @@
         else set({ stats: {}, history: [], resetArm: false });
         break;
     }
-  });
+  }
+  view.addEventListener('click', onClick);
+  tabbar.addEventListener('click', onClick);
 
   view.addEventListener('input', function (e) {
     if (e.target.id !== 'novoJogador') return;
@@ -358,13 +358,5 @@
     if (inp) inp.focus();
   });
 
-  /* ---------- escala para caber na tela ---------- */
-  var cab = document.getElementById('cabinet');
-  function fit() {
-    var s = Math.min(window.innerWidth / 720, window.innerHeight / 1280);
-    cab.style.transform = 'scale(' + s + ')';
-  }
-  window.addEventListener('resize', fit);
-  fit();
   render();
 })();

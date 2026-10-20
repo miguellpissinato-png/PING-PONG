@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Placar Disputa Elsys</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -10,28 +10,30 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="stage">
-  <div id="cabinet">
+<div id="cabinet">
     <div id="screen" class="fx">
       <div class="jitter content">
         <header class="hdr">
           <div class="paddles">
-            <svg class="paddle" width="112" height="160" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true" style="transform: rotate(-26deg);">
+            <svg class="paddle" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true" style="transform: rotate(-26deg);">
               <use href="#paddle"></use>
             </svg>
-            <svg class="bounce" width="36" height="36" viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true">
+            <svg class="ball bounce" viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true">
               <path fill="#f4f7ff" d="M1 1h3v1h-3zM1 2h4v1h-4zM1 3h4v1h-4zM2 4h2v1h-2z"/>
               <path fill="#b9c6f2" d="M4 1h1v1h-1zM1 4h1v1h-1zM4 4h1v1h-1z"/>
               <path fill="#060a1d" d="M1 0h4v1h-4zM0 1h1v1h-1zM5 1h1v1h-1zM0 2h1v1h-1zM5 2h1v1h-1zM0 3h1v1h-1zM5 3h1v1h-1zM0 4h1v1h-1zM5 4h1v1h-1zM1 5h4v1h-4z"/>
             </svg>
-            <svg class="paddle" width="112" height="160" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true" style="transform: scaleX(-1) rotate(-26deg);">
+            <svg class="paddle" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true" style="transform: scaleX(-1) rotate(-26deg);">
               <use href="#paddle"></use>
             </svg>
           </div>
-          <h1 class="rgb glow title">DISPUTA ELSYS</h1>
-          <div class="vt subtitle">TÊNIS DE MESA · MELHOR DE 3</div>
+          <div class="titles">
+            <h1 class="rgb glow title">DISPUTA ELSYS</h1>
+            <div class="vt subtitle">TÊNIS DE MESA · MELHOR DE 3</div>
+          </div>
         </header>
 
+        <div id="tabbar"></div>
         <div id="view" class="view"></div>
 
         <footer class="vt foot">
@@ -43,16 +45,15 @@
       <div class="roll"></div>
       <div class="flash"></div>
       <div class="tear"></div>
-      <div class="px" style="left: 92px; top: 310px; background: #ff3b47;"></div>
-      <div class="px" style="left: 108px; top: 310px; background: #39ff7a;"></div>
-      <div class="px" style="right: 120px; top: 640px; background: #39ff7a;"></div>
-      <div class="px" style="right: 136px; top: 656px; background: #ff3b47;"></div>
-      <div class="px" style="left: 300px; top: 1010px; background: #ff3b47; width: 32px; height: 8px;"></div>
-      <div class="px" style="right: 60px; top: 190px; background: #f4f7ff; width: 8px; height: 8px;"></div>
+      <div class="px" style="left: 13%; top: 24%; background: #ff3b47;"></div>
+      <div class="px" style="left: calc(13% + clamp(6px, 2vmin, 22px)); top: 24%; background: #39ff7a;"></div>
+      <div class="px" style="right: 17%; top: 50%; background: #39ff7a;"></div>
+      <div class="px" style="right: calc(17% + clamp(6px, 2vmin, 22px)); top: calc(50% + clamp(6px, 2vmin, 22px)); background: #ff3b47;"></div>
+      <div class="px wide" style="left: 42%; top: 79%; background: #ff3b47;"></div>
+      <div class="px dot" style="right: 9%; top: 15%; background: #f4f7ff;"></div>
       <div class="scan"></div>
       <div class="vig"></div>
     </div>
-  </div>
 </div>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
