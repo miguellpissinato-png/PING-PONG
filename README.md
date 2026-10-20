@@ -28,14 +28,24 @@ Textos, números e botões crescem e encolhem com a tela, e os botões nunca fic
 2. Em **Source**, escolha **Deploy from a branch**, a branch `main` e a pasta `/ (root)`.
 3. Depois de alguns minutos o placar fica disponível no endereço que o GitHub mostrar.
 
+## Partida ao vivo
+
+Só existe uma partida em andamento por vez.
+
+- Quem toca em **INICIAR** vira o marcador: só o aparelho dele mostra os botões − e +.
+- Enquanto a partida rola, todo mundo que abre o site vê o placar ao vivo, com a bolinha vermelha piscando e o selo **AO VIVO**. O placar muda na hora em que o marcador toca no botão. Ninguém mais consegue iniciar outra partida.
+- Nas abas Jogadores e Ranking aparece uma faixa **AO VIVO** com o placar; tocar nela volta para a partida.
+- Se o marcador recarregar a página no mesmo aparelho, ele continua no controle.
+- A partida termina quando o marcador toca em **SALVAR NO RANKING** ou em **ENCERRAR**. Se ninguém marcar ponto por 20 minutos, aparece para todos o botão **LIBERAR PLACAR**.
+
 ## Onde os dados ficam
 
-Jogadores e partidas ficam num banco [Supabase](https://supabase.com) compartilhado (projeto `placar-disputa-elsys`). Todo mundo que abre o site vê a mesma lista de jogadores e o mesmo ranking, e a tela se atualiza sozinha a cada 8 segundos.
+Jogadores, partidas e a partida ao vivo ficam num banco [Supabase](https://supabase.com) compartilhado (projeto `placar-disputa-elsys`). O site usa o tempo real do Supabase para mostrar mudanças na hora; se a conexão de tempo real cair, ele consulta o banco a cada 2 segundos.
 
 - **Cadastrar jogador** e **registrar partida** ficam salvos para todos.
 - **Remover jogador** tira o nome da lista e do ranking para todos, mas as partidas dele continuam no histórico.
-- A **partida em andamento** (os pontos de cada jogo) fica só no aparelho que está marcando. Ela vai para o banco quando alguém fecha a melhor de 3 e toca em **SALVAR NO RANKING**.
-- Pelo site ninguém consegue editar nomes, apagar partidas ou zerar o ranking. Isso é feito no painel do Supabase, em **Table Editor**.
+- A **partida ao vivo** fica na tabela `partida_ao_vivo`. Só o aparelho que iniciou consegue mudar o placar, pelas funções do banco (`iniciar_partida`, `atualizar_partida`, `encerrar_partida`, `liberar_partida_parada`).
+- Pelo site ninguém consegue editar nomes, apagar ou registrar partidas fora da partida ao vivo, nem zerar o ranking. Isso é feito no painel do Supabase, em **Table Editor**.
 
 O site não tem login: qualquer pessoa com o link pode cadastrar e remover jogadores. Um jogador removido por engano pode ser recuperado no painel, mudando `ativo` para `true` na tabela `jogadores`.
 
@@ -45,6 +55,8 @@ O site não tem login: qualquer pessoa com o link pode cadastrar e remover jogad
 | --- | --- |
 | `jogadores` | `id`, `nome` (até 10 letras, maiúsculas, único entre os ativos), `ativo`, `criado_em` |
 | `partidas` | `jogador_a`, `jogador_b`, `jogos_a`, `jogos_b` (quem fez 2 venceu), `pontos_a`, `pontos_b`, `criado_em` |
+| `partida_ao_vivo` | Linha única com a partida em andamento: jogadores, `pontos` (quem fez cada ponto do jogo atual), jogos e pontos já fechados, `ativa` |
+| `partida_ao_vivo_dono` | Chave secreta do aparelho que iniciou. Ninguém lê pelo site |
 
 O endereço do banco e a chave pública ficam no topo do `app.js`. A chave pública pode ficar no código: ela só permite o que as regras do banco liberam.
 

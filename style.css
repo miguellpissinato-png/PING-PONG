@@ -159,6 +159,20 @@ nav.tabs { display: flex; flex: none; }
 .status .t { font-size: var(--fs-md); letter-spacing: .08em; }
 .status .s { font-family: 'VT323', 'Courier New', monospace; font-size: var(--vt-md); color: var(--ink-soft); }
 
+/* ao vivo */
+.dot { display: inline-block; width: .9em; height: .9em; border-radius: 50%; background: var(--red); box-shadow: 0 0 .6em var(--red), 0 0 1.4em rgba(255,59,71,.6); flex: none; animation: pulse 1.1s steps(2, end) infinite; }
+.lv { color: var(--red); letter-spacing: .15em; text-shadow: 0 0 10px rgba(255,59,71,.6); flex: none; }
+.live { display: flex; align-items: center; justify-content: center; gap: .8em; flex-wrap: wrap; width: 100%; margin-top: var(--gap-s); min-height: var(--tap); padding: .4em 1em; border: 0; cursor: pointer;
+  font-family: 'Press Start 2P', 'Courier New', monospace; font-size: var(--fs-sm); color: var(--ink); background: rgba(255,59,71,.08); box-shadow: inset 0 0 0 var(--border) rgba(255,59,71,.55); }
+.live:hover { background: rgba(255,59,71,.16); }
+.live:focus-visible { outline: var(--border) solid var(--ink); outline-offset: var(--border); }
+.lv-score { font-size: var(--vt-md); color: var(--ink-soft); }
+.live-head { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: .3em .7em; font-size: var(--fs-md); flex: none; }
+.live-head .dot { width: 1em; height: 1em; }
+.who-marks { flex-basis: 100%; text-align: center; font-size: var(--vt-sm); color: var(--ink-mute); }
+.score-row.watch { grid-template-columns: auto; grid-template-areas: "d"; }
+@keyframes pulse { 0% { opacity: 1 } 50% { opacity: .25 } }
+
 /* jogadores */
 .add-form { display: flex; flex-direction: column; gap: var(--gap-s); margin: 0; flex: none; }
 .sample-box { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--gap-s); padding: var(--gap-s) var(--gap); flex: none; }
@@ -247,5 +261,5 @@ nav.tabs { display: flex; flex: none; }
 @keyframes flk { 0% { opacity: 1 } 50% { opacity: .82 } }
 @keyframes blk { 0% { opacity: 1 } 50% { opacity: 0 } }
 @keyframes bnc { from { transform: translateY(-60%) } to { transform: translateY(50%) } }
-@media (prefers-reduced-motion: reduce) { .jitter, .rgb, .flash, .tear, .px, .roll, .scan, .blink, .bounce { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none; } .jitter, .rgb, .flash, .tear, .px, .roll, .scan, .blink, .bounce { animation: none !important; } }
 #tabbar { flex: none; }
