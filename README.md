@@ -5,10 +5,12 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
 ## O que ele faz
 
 - **Perfil:** ao abrir o site, cada pessoa cria o perfil com o apelido que usa na mesa e um PIN de 4 números, ou entra com o perfil que já tem. Na aba **Perfil** ela vê o próprio apelido (e pode mudar), quantas partidas jogou, venceu e perdeu, a posição no ranking, os confrontos contra cada adversário e as últimas partidas.
-- **Partida:** qualquer pessoa logada escolhe os dois jogadores, define quem saca no 1º ponto e toca em **INICIAR**. Um toque no placar do jogador marca ponto para ele; DESFAZER PONTO corrige o último. Mostra jogos ganhos (melhor de 3) e status (igualdade, ponto de jogo, vencedor).
+- **Partida:** qualquer pessoa logada escolhe os dois jogadores, define quem saca no 1º ponto e toca em **INICIAR**. Um toque no placar do jogador marca ponto para ele; dois toques rápidos no mesmo placar tiram 1 ponto dele. DESFAZER PONTO também desfaz o último ponto. Mostra jogos ganhos (melhor de 3) e status (igualdade, ponto de jogo, vencedor).
 - **Regras:** o jogo vai até 11 pontos com vantagem de 2, e o saque é de quem fez o último ponto.
 - **Ranking:** cada vitória vale 1 ponto (PTS). Empates são decididos pelo saldo de jogos e depois pelos pontos feitos. Quando uma partida é salva, todo mundo que estava acompanhando vai direto para o ranking e o vencedor aparece com um +1 piscando por 15 segundos.
 - **Histórico:** todos os confrontos entre duplas, no formato `JÚLIO 3 x 1 FÁBIO` (quantas partidas cada um venceu contra o outro), com o total de pontos de cada um no ranking geral. Dá para filtrar por jogador.
+
+- **Tutorial:** na primeira vez que cada perfil entra num aparelho, abre um passo a passo ilustrado com as abas, como iniciar partida, 1 toque e 2 toques, partida ao vivo, ranking, histórico e perfil. Dá para pular e rever depois em **COMO FUNCIONA**, na aba Perfil.
 
 ## Como usar
 
@@ -32,7 +34,7 @@ Textos, números e botões crescem e encolhem com a tela, e os botões nunca fic
 
 Só existe uma partida em andamento por vez.
 
-- Quem toca em **INICIAR** vira o marcador: no aparelho dele, **um toque no placar do jogador marca o ponto dele**. **DESFAZER PONTO** tira o último ponto marcado.
+- Quem toca em **INICIAR** vira o marcador: no aparelho dele, **1 toque no placar do jogador = +1** e **2 toques rápidos no mesmo placar = −1**. O ponto entra 0,3 s depois do toque, o tempo de ver se veio um segundo toque. **DESFAZER PONTO** tira o último ponto marcado.
 - Enquanto a partida rola, todo mundo que abre o site vê o placar ao vivo, com a bolinha vermelha piscando e o selo **AO VIVO**. O placar muda na hora em que o marcador toca no botão. Ninguém mais consegue iniciar outra partida.
 - Nas abas Jogadores e Ranking aparece uma faixa **AO VIVO** com o placar; tocar nela volta para a partida.
 - Se o marcador recarregar a página no mesmo aparelho, ele continua no controle.

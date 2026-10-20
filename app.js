@@ -16,6 +16,8 @@
   var SESSION_KEY = 'disputa-elsys-sessao';     // login deste aparelho
   var STALE_MS = 20 * 60 * 1000;                // partida sem ponto há 20 min pode ser liberada
   var HEARTBEAT_MS = 4 * 60 * 1000;             // quem marca avisa o banco que a partida segue viva
+  var DOUBLE_TAP_MS = 320;                      // dois toques no mesmo placar dentro deste tempo tiram 1 ponto
+  var TUTORIAL_KEY = 'disputa-elsys-tutorial-v1'; // perfis que já viram o tutorial neste aparelho
 
   var st = {
     tab: 'partida',
@@ -31,7 +33,9 @@
     rt: false,           // tempo real conectado
     // partida que ESTE aparelho está marcando
     playing: false, m1: null, m2: null, hist: [], g1: 0, g2: 0, first: 1, pts1: 0, pts2: 0,
-    quitArm: false, saveErr: '', syncErr: ''
+    quitArm: false, saveErr: '', syncErr: '',
+    tapFx: null,         // { v, text, minus, until } — +1 / −1 que aparece no placar tocado
+    onb: null            // passo do tutorial aberto (ou null)
   };
 
   function set(patch) {
@@ -90,7 +94,7 @@
     var t = loadToken();
     if (!t) { set({ me: null, authChecked: true }); return Promise.resolve(); }
     return rpc('meu_perfil', { p_token: t }).then(function (r) {
-      if (r && r.ok) set({ me: { id: r.id, nome: r.nome }, authChecked: true });
+      if (r && r.ok) { st.me = { id: r.id, nome: r.nome }; st.authChecked = true; maybeTutorial(); render(); }
       else { saveToken(null); set({ me: null, authChecked: true }); }
     }).catch(function () {
       // sem internet: mantém a pessoa na tela e tenta de novo depois
@@ -119,7 +123,9 @@
     rpc(st.authMode === 'criar' ? 'criar_perfil' : 'entrar', { p_nome: nome, p_pin: pin }).then(function (r) {
       if (r && r.ok) {
         saveToken(r.token);
-        set({ me: { id: r.id, nome: r.nome }, authBusy: false, authPin: '', authNome: '', authErr: '', tab: 'partida' });
+        st.me = { id: r.id, nome: r.nome };
+        maybeTutorial();
+        set({ authBusy: false, authPin: '', authNome: '', authErr: '', tab: 'partida' });
         refresh();
         return;
       }
@@ -136,7 +142,7 @@
     var t = loadToken();
     saveToken(null);
     if (t) rpc('sair', { p_token: t }).catch(function () {});
-    set({ me: null, tab: 'partida', authMode: 'entrar', renaming: false, picked: [] });
+    set({ me: null, tab: 'partida', authMode: 'entrar', renaming: false, picked: [], onb: null });
   }
 
   function doRename() {
@@ -444,16 +450,18 @@
   function playerCard(n, name, score, gp, serving, lock, control) {
     var pips = [0, 1].map(function (i) { return '<div class="pip' + (i < gp ? ' on' : '') + '"></div>'; }).join('');
     var inner =
-      '<div class="tag">' + n + 'P' + (control ? ' · TOQUE = PONTO' : '') + '</div>' +
+      '<div class="tag">' + n + 'P' + (control ? ' · 1 TOQUE +1 · 2 TOQUES −1' : '') + '</div>' +
       '<div class="nm">' + esc(name) + '</div>' +
       '<div class="score-row"><div class="rgb glow digits">' + pad(score) + '</div></div>' +
       '<div class="meta">' +
         '<div class="games"><span class="vt">JOGOS</span>' + pips + '</div>' +
         '<div class="serve-slot">' + (serving ? serveTag() : '') + '</div>' +
       '</div>';
+    var fx = st.tapFx && st.tapFx.v === n && Date.now() < st.tapFx.until
+      ? '<span class="tap-fx' + (st.tapFx.minus ? ' minus' : '') + '" aria-hidden="true">' + st.tapFx.text + '</span>' : '';
     if (!control) return '<div class="box player">' + inner + '</div>';
     return '<button class="box player tap" type="button" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') +
-      ' aria-label="Ponto para ' + esc(name) + ', ' + score + ' pontos">' + inner + '</button>';
+      ' aria-label="' + esc(name) + ', ' + score + ' pontos. Um toque marca ponto, dois toques tiram um ponto.">' + inner + fx + '</button>';
   }
 
   function viewBoard() {
@@ -470,7 +478,7 @@
     var stale = !control && st.live && (Date.now() - tsMicros(st.live.atualizada_em) / 1000 > STALE_MS);
     var h = '<section>';
     h += '<div class="live-head"><span class="dot" aria-hidden="true"></span><span class="lv">AO VIVO</span>' +
-      '<span class="vt who-marks">' + (control ? 'Toque no placar de quem fez o ponto' : 'Só quem iniciou a partida marca os pontos') + '</span></div>';
+      '<span class="vt who-marks">' + (control ? '1 toque no placar = ponto · 2 toques rápidos = tira ponto' : 'Só quem iniciou a partida marca os pontos') + '</span></div>';
     h += '<div class="board">';
     h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, !!g.w, control);
     h += '<div class="vs" aria-hidden="true">VS</div>';
@@ -505,6 +513,114 @@
     if (st.syncErr) h += '<div class="err" role="alert">' + esc(st.syncErr) + '</div>';
     if (stale) h += '<div class="legend">Ninguém marca ponto há mais de 20 minutos. Libere o placar para iniciar outra partida.</div>';
     return h + '</section>';
+  }
+
+  /* ---------- tutorial ----------
+     Aparece uma vez para cada perfil que entra neste aparelho (novo ou antigo).
+     Dá para abrir de novo no Perfil, em COMO FUNCIONA. */
+  function tutorialSeen(id) {
+    try { return (JSON.parse(localStorage.getItem(TUTORIAL_KEY) || '[]')).indexOf(id) >= 0; } catch (e) { return false; }
+  }
+  function markTutorialSeen(id) {
+    try {
+      var l = JSON.parse(localStorage.getItem(TUTORIAL_KEY) || '[]');
+      if (l.indexOf(id) < 0) l.push(id);
+      localStorage.setItem(TUTORIAL_KEY, JSON.stringify(l));
+    } catch (e) {}
+  }
+  function maybeTutorial() {
+    if (st.me && st.onb === null && !tutorialSeen(st.me.id)) st.onb = 0;
+  }
+  function closeTutorial() {
+    if (st.me) markTutorialSeen(st.me.id);
+    set({ onb: null });
+  }
+
+  // desenhos do tutorial (pixel art + mini telas)
+  var ART = {
+    hand: '<svg class="ob-hand-svg" viewBox="0 0 11 14" shape-rendering="crispEdges" aria-hidden="true">' +
+      '<path fill="#f4f7ff" d="M4 1h3v1h-3zM4 2h3v1h-3zM4 3h3v1h-3zM4 4h3v1h-3zM4 5h3v1h-3zM8 5h2v1h-2zM1 6h2v1h-2zM4 6h6v1h-6zM1 7h9v1h-9zM1 8h8v1h-8zM2 9h7v1h-7zM2 10h6v1h-6zM3 11h4v1h-4zM3 12h4v1h-4z"/>' +
+      '<path fill="#9fb0e6" d="M9 8h1v1h-1zM9 9h1v1h-1zM8 10h1v1h-1zM7 11h1v1h-1zM7 12h1v1h-1z"/>' +
+      '<path fill="#060a1d" d="M4 0h3v1h-3zM3 1h1v1h-1zM7 1h1v1h-1zM3 2h1v1h-1zM7 2h1v1h-1zM3 3h1v1h-1zM7 3h1v1h-1zM3 4h1v1h-1zM7 4h3v1h-3zM1 5h3v1h-3zM7 5h1v1h-1zM10 5h1v1h-1zM0 6h1v1h-1zM3 6h1v1h-1zM10 6h1v1h-1zM0 7h1v1h-1zM10 7h1v1h-1zM0 8h1v1h-1zM10 8h1v1h-1zM1 9h1v1h-1zM10 9h1v1h-1zM1 10h1v1h-1zM9 10h1v1h-1zM2 11h1v1h-1zM8 11h1v1h-1zM2 12h1v1h-1zM8 12h1v1h-1zM2 13h7v1h-7z"/></svg>',
+    paddle: '<svg class="ob-paddle" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true"><use href="#paddle"></use></svg>'
+  };
+  // mão tocando: n = 1 ou 2 toques
+  function obTap(n) {
+    return '<span class="ob-tap ob-tap' + n + '" aria-hidden="true"><span class="ob-ripple"></span>' + ART.hand +
+      '<span class="ob-times">' + n + '×</span></span>';
+  }
+  function obCard(tag, name, score, extra) {
+    return '<div class="ob-card' + (extra && extra.indexOf('ob-tap') >= 0 ? ' has-tap' : '') + '">' + '<div class="ob-tag">' + tag + '</div><div class="ob-name">' + name + '</div>' +
+      '<div class="ob-digits">' + score + '</div>' + (extra || '') + '</div>';
+  }
+  function obBoard(c1, c2) { return '<div class="ob-board">' + c1 + '<div class="ob-vs">VS</div>' + c2 + '</div>'; }
+
+  function tutorialSteps() {
+    var me = st.me ? esc(st.me.nome) : 'VOCÊ';
+    return [
+      { title: 'BEM-VINDO À DISPUTA!',
+        art: '<div class="ob-hero">' + ART.paddle + '<span class="ob-ball bounce"></span>' + '<svg class="ob-paddle flip" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true"><use href="#paddle"></use></svg></div>',
+        text: 'Este é o placar de ping-pong da Elsys. Em poucos passos você aprende a marcar pontos, acompanhar jogos ao vivo e subir no ranking.' },
+      { title: 'AS 4 ABAS',
+        art: '<div class="ob-tabs-art">' +
+          '<div class="ob-tabrow"><span class="on">PARTIDA</span><span>RANKING</span><span>HISTÓRICO</span><span>PERFIL</span></div>' +
+          '<ul class="ob-list">' +
+            '<li><b>PARTIDA</b> iniciar e acompanhar jogos</li>' +
+            '<li><b>RANKING</b> quem tem mais vitórias</li>' +
+            '<li><b>HISTÓRICO</b> quem ganha de quem</li>' +
+            '<li><b>PERFIL</b> seus números e seu apelido</li></ul></div>',
+        text: 'Tudo fica nessas quatro abas, no topo da tela. Toque em uma para trocar.' },
+      { title: 'INICIAR UMA PARTIDA',
+        art: '<div class="ob-setup">' +
+          '<div class="ob-chips"><span class="ob-chip on">RAIO <i>1P</i></span><span class="ob-chip on">TROVÃO <i>2P</i></span>' +
+          '<span class="ob-chip">FAÍSCA</span><span class="ob-chip">COMETA</span></div>' +
+          '<div class="ob-start">INICIAR' + obTap(1) + '</div></div>',
+        text: 'Na aba Partida, toque nos 2 jogadores, escolha quem saca primeiro e toque em INICIAR. O seu aparelho vira o marcador dessa partida.' },
+      { title: '1 TOQUE = PONTO',
+        art: obBoard(obCard('1P', 'RAIO', '06', obTap(1) + '<span class="ob-fx plus">+1</span>'), obCard('2P', 'TROVÃO', '04')),
+        text: 'Durante o jogo, toque uma vez no placar de quem fez o ponto. Aparece um +1 verde.' },
+      { title: '2 TOQUES = TIRA PONTO',
+        art: obBoard(obCard('1P', 'RAIO', '05', obTap(2) + '<span class="ob-fx minus">−1</span>'), obCard('2P', 'TROVÃO', '04')),
+        text: 'Marcou para a pessoa errada? Toque duas vezes rápido no mesmo placar e 1 ponto sai dele. Aparece um −1 vermelho.' },
+      { title: 'TODO MUNDO VÊ AO VIVO',
+        art: '<div class="ob-live"><div class="ob-livehead"><span class="dot"></span><span class="lv">AO VIVO</span></div>' +
+          obBoard(obCard('1P', 'RAIO', '09'), obCard('2P', 'TROVÃO', '07')) + '</div>',
+        text: 'Quem não está marcando acompanha o placar em tempo real, em qualquer celular ou TV. Enquanto uma partida está ao vivo, ninguém inicia outra.' },
+      { title: 'FIM DE JOGO E RANKING',
+        art: '<div class="ob-rank">' +
+          '<div class="ob-save">SALVAR NO RANKING' + obTap(1) + '</div>' +
+          '<div class="ob-rkrow won"><span>1º</span><span class="n">RAIO</span><span class="pts"><i>+1</i> 5</span></div>' +
+          '<div class="ob-rkrow"><span>2º</span><span class="n">TROVÃO</span><span class="pts">4</span></div>' +
+          '<div class="ob-rkrow"><span>3º</span><span class="n">FAÍSCA</span><span class="pts">2</span></div></div>',
+        text: 'A partida é melhor de 3 jogos de 11 pontos. Quando acabar, toque em SALVAR NO RANKING. Cada vitória vale 1 ponto e todo mundo vê na hora.' },
+      { title: 'HISTÓRICO E PERFIL',
+        art: '<div class="ob-hp">' +
+          '<div class="ob-pair"><span class="lead">RAIO</span><span class="sc">3 x 1</span><span>TROVÃO</span></div>' +
+          '<div class="ob-tiles"><div><b>12</b><span>PARTIDAS</span></div><div><b class="win">8</b><span>VITÓRIAS</span></div><div><b>4</b><span>DERROTAS</span></div></div>' +
+          '<div class="ob-me">' + me + '</div></div>',
+        text: 'No Histórico você vê quem ganha de quem. No Perfil ficam seus números, seus confrontos e a opção de mudar o apelido. Para rever este tutorial, toque em COMO FUNCIONA no Perfil.' }
+    ];
+  }
+
+  function viewTutorial() {
+    var steps = tutorialSteps();
+    var i = Math.max(0, Math.min(st.onb, steps.length - 1)), stp = steps[i], last = i === steps.length - 1;
+    var dots = steps.map(function (x, k) {
+      return '<button class="ob-dot' + (k === i ? ' on' : '') + '" type="button" data-act="onbGo" data-v="' + k + '" aria-label="Passo ' + (k + 1) + '"' + (k === i ? ' aria-current="step"' : '') + '></button>';
+    }).join('');
+    return '<div class="ob-backdrop">' +
+      '<div class="box ob" role="dialog" aria-modal="true" aria-labelledby="obTitle">' +
+        '<div class="ob-top"><span class="lbl">PASSO ' + (i + 1) + ' DE ' + steps.length + '</span>' +
+          (last ? '' : '<button class="link ob-skip" type="button" data-act="onbSkip">PULAR</button>') + '</div>' +
+        '<h2 id="obTitle" class="ob-title rgb glow">' + stp.title + '</h2>' +
+        '<div class="ob-art">' + stp.art + '</div>' +
+        '<p class="ob-text">' + stp.text + '</p>' +
+        '<div class="ob-dots">' + dots + '</div>' +
+        '<div class="ob-nav">' +
+          (i > 0 ? '<button class="btn ghost" type="button" data-act="onbPrev">VOLTAR</button>' : '<span></span>') +
+          '<button class="btn go ob-next" type="button" data-act="' + (last ? 'onbDone' : 'onbNext') + '">' + (last ? 'VAMOS JOGAR!' : 'PRÓXIMO') + '</button>' +
+        '</div>' +
+      '</div></div>';
   }
 
   /* ---------- números de cada jogador e confrontos ---------- */
@@ -625,7 +741,9 @@
     });
     if (!myMatches.length) h += '<div class="note dim">Nenhuma partida ainda.</div>';
     h += '</div></div>';
-    h += '<div class="grow"></div><div class="row center"><button class="btn ghost" type="button" data-act="logout">SAIR DESTE APARELHO</button></div>';
+    h += '<div class="grow"></div><div class="row center">' +
+      '<button class="btn ghost" type="button" data-act="onbOpen">COMO FUNCIONA</button>' +
+      '<button class="btn ghost" type="button" data-act="logout">SAIR DESTE APARELHO</button></div>';
     return h + '</section>';
   }
 
@@ -699,6 +817,8 @@
 
   var view = document.getElementById('view');
   var tabbar = document.getElementById('tabbar');
+  var overlay = document.getElementById('overlay');
+  var content = document.querySelector('.content');
 
   function render() {
     var body, bar = '';
@@ -720,10 +840,52 @@
     tabbar.innerHTML = bar;
     view.innerHTML = body;
     view.scrollTop = scroll;
+    var tut = st.me && st.onb !== null;
+    var hadTut = !!overlay.firstChild;
+    overlay.innerHTML = tut ? viewTutorial() : '';
+    content.inert = tut;
+    if (tut) {
+      if (!overlay.contains(document.activeElement)) { var nx = overlay.querySelector('.ob-next'); if (nx) nx.focus(); }
+      return;
+    }
+    if (hadTut) { var tb = tabbar.querySelector('.tab.on'); if (tb) tb.focus(); }
     if (typingId) {
       var inp = document.getElementById(typingId);
       if (inp) { inp.focus(); try { if (caret !== null) inp.setSelectionRange(caret, caret); } catch (e) {} }
     }
+  }
+
+  /* ---------- toque no placar ----------
+     1 toque = ponto para o jogador; 2 toques rápidos no mesmo placar = tira 1 ponto dele.
+     O ponto só entra depois de DOUBLE_TAP_MS, para dar tempo de ver se veio um segundo toque. */
+  var pendingTap = null;
+  function showTapFx(v, text, minus) {
+    st.tapFx = { v: v, text: text, minus: !!minus, until: Date.now() + 700 };
+    setTimeout(function () { if (st.tapFx && Date.now() >= st.tapFx.until) { st.tapFx = null; render(); } }, 750);
+  }
+  function addPoint(v) {
+    if (!st.playing || game().w) return;
+    st.quitArm = false;
+    st.hist = st.hist.concat([v]);
+    showTapFx(v, '+1', false);
+    render(); push();
+  }
+  function removePoint(v) {
+    if (!st.playing) return;
+    var before = st.hist.length;
+    st.hist = dropLast(v);
+    showTapFx(v, st.hist.length < before ? '−1' : '0', true);
+    render(); push();
+  }
+  function tapScore(v, el) {
+    if (el) { el.classList.remove('pressed'); void el.offsetWidth; el.classList.add('pressed'); }
+    if (pendingTap && pendingTap.v === v) {          // segundo toque no mesmo placar
+      clearTimeout(pendingTap.timer); pendingTap = null;
+      removePoint(v);
+      return;
+    }
+    if (pendingTap) { clearTimeout(pendingTap.timer); var prev = pendingTap.v; pendingTap = null; addPoint(prev); }
+    pendingTap = { v: v, timer: setTimeout(function () { pendingTap = null; addPoint(v); }, DOUBLE_TAP_MS) };
   }
 
   /* ---------- ações ---------- */
@@ -739,6 +901,11 @@
       case 'tab':
         set({ tab: v, quitArm: false, renaming: false });
         break;
+      case 'onbNext': set({ onb: st.onb + 1 }); focusNext(); break;
+      case 'onbPrev': set({ onb: Math.max(0, st.onb - 1) }); focusNext(); break;
+      case 'onbGo': set({ onb: Number(v) }); break;
+      case 'onbSkip': case 'onbDone': closeTutorial(); break;
+      case 'onbOpen': set({ onb: 0 }); break;
       case 'authMode':
         set({ authMode: v, authErr: '', authPin: '' });
         break;
@@ -769,7 +936,7 @@
         break;
       case 'add':
         if (!control || g.w) return;
-        set({ hist: st.hist.concat([Number(v)]), quitArm: false }); push();
+        tapScore(Number(v), el);
         break;
       case 'sub':
         if (!control) return;
@@ -799,6 +966,15 @@
     }
   }
   view.addEventListener('click', onClick);
+  overlay.addEventListener('click', onClick);
+  function focusNext() { var nx = overlay.querySelector('.ob-next'); if (nx) nx.focus(); }
+  overlay.addEventListener('keydown', function (e) {
+    if (st.onb === null) return;
+    var total = tutorialSteps().length;
+    if (e.key === 'Escape') { e.preventDefault(); closeTutorial(); }
+    else if (e.key === 'ArrowRight' && st.onb < total - 1) { e.preventDefault(); set({ onb: st.onb + 1 }); focusNext(); }
+    else if (e.key === 'ArrowLeft' && st.onb > 0) { e.preventDefault(); set({ onb: st.onb - 1 }); focusNext(); }
+  });
   tabbar.addEventListener('click', onClick);
 
   view.addEventListener('input', function (e) {
