@@ -5,7 +5,7 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
 ## O que ele faz
 
 - **Partida:** escolha os dois jogadores, defina quem saca no 1º ponto e toque em **INICIAR**.
-- **Placar:** botões + e − para cada jogador, jogos ganhos (melhor de 3) e status (igualdade, ponto de jogo, vencedor).
+- **Placar:** um toque no placar do jogador marca ponto para ele; DESFAZER PONTO corrige o último. Mostra jogos ganhos (melhor de 3) e status (igualdade, ponto de jogo, vencedor).
 - **Regras:** o jogo vai até 11 pontos com vantagem de 2, e o saque é de quem fez o último ponto.
 - **Jogadores:** cadastre e remova apelidos (até 10 letras).
 - **Ranking:** cada vitória vale 1 ponto (PTS). Empates são decididos pelo saldo de jogos e depois pelos pontos feitos. Mostra também as últimas 5 partidas. Quando uma partida é salva, todo mundo que estava acompanhando vai direto para o ranking e o vencedor aparece com um +1 piscando por 15 segundos.
@@ -32,7 +32,7 @@ Textos, números e botões crescem e encolhem com a tela, e os botões nunca fic
 
 Só existe uma partida em andamento por vez.
 
-- Quem toca em **INICIAR** vira o marcador: só o aparelho dele mostra os botões − e +.
+- Quem toca em **INICIAR** vira o marcador: no aparelho dele, **um toque no placar do jogador marca o ponto dele**. **DESFAZER PONTO** tira o último ponto marcado.
 - Enquanto a partida rola, todo mundo que abre o site vê o placar ao vivo, com a bolinha vermelha piscando e o selo **AO VIVO**. O placar muda na hora em que o marcador toca no botão. Ninguém mais consegue iniciar outra partida.
 - Nas abas Jogadores e Ranking aparece uma faixa **AO VIVO** com o placar; tocar nela volta para a partida.
 - Se o marcador recarregar a página no mesmo aparelho, ele continua no controle.

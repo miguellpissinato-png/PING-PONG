@@ -159,6 +159,13 @@ nav.tabs { display: flex; flex: none; }
 .status .t { font-size: var(--fs-md); letter-spacing: .08em; }
 .status .s { font-family: 'VT323', 'Courier New', monospace; font-size: var(--vt-md); color: var(--ink-soft); }
 
+/* placar tocável: o cartão inteiro do jogador marca o ponto */
+.player.tap { width: 100%; border: 0; font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+.player.tap:hover { background: rgba(244,247,255,.05); }
+.player.tap:active { background: rgba(57,255,122,.14); box-shadow: inset 0 0 0 var(--border) var(--green); transform: scale(.985); }
+.player.tap:focus-visible { outline: var(--border) solid var(--ink); outline-offset: var(--border); }
+.player.tap:disabled { cursor: default; transform: none; background: rgba(4,8,26,.4); }
+
 /* ao vivo */
 .dot { display: inline-block; width: .9em; height: .9em; border-radius: 50%; background: var(--red); box-shadow: 0 0 .6em var(--red), 0 0 1.4em rgba(255,59,71,.6); flex: none; animation: pulse 1.1s steps(2, end) infinite; }
 .lv { color: var(--red); letter-spacing: .15em; text-shadow: 0 0 10px rgba(255,59,71,.6); flex: none; }
@@ -223,6 +230,16 @@ nav.tabs { display: flex; flex: none; }
 /* paisagem não muito alta (notebooks): rodapé sai para sobrar espaço */
 @media (orientation: landscape) and (max-height: 820px) {
   .foot { display: none; }
+}
+
+/* celular em pé com pouca altura: o placar ganha o espaço das raquetes, do subtítulo e do rodapé */
+@media (orientation: portrait) and (max-height: 820px) {
+  .paddle, .paddles .ball, .subtitle, .foot { display: none; }
+  .hdr { gap: 0; }
+  .bottom-bar { gap: var(--gap-s); }
+  .bottom-bar .status { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 1em; padding: .5em 1em; }
+  .bottom-bar .status .k { display: none; }
+  :root { --digits: clamp(40px, min(22vw, 12vh), 420px); }
 }
 
 /* telas baixas (celular deitado, janelas achatadas) */

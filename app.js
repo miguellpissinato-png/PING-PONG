@@ -55,10 +55,29 @@
   }
   function rpc(fn, args) { return api('rpc/' + fn, { method: 'POST', body: args }); }
 
+  /* Converte um horário do banco em microssegundos desde 1970. O banco e o tempo real mandam formatos
+     como "2026-10-20T18:16:00.775056+00:00" e "2026-10-20 18:16:00.775056+00"; o Safari não lê
+     todos com Date.parse, então a leitura é feita aqui. */
+  function tsMicros(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?\s*(Z|[+-]\d{2}(?::?\d{2})?)?$/i.exec(String(s || '').trim());
+    if (!m) return NaN;
+    var ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    var frac = ((m[7] || '') + '000000').slice(0, 6);
+    var off = 0, z = m[8];
+    if (z && z.toUpperCase() !== 'Z') {
+      var sign = z[0] === '-' ? -1 : 1, d = z.slice(1).replace(':', '');
+      off = sign * (parseInt(d.slice(0, 2), 10) * 60 + (parseInt(d.slice(2, 4), 10) || 0));
+    }
+    return (ms - off * 60000) * 1000 + parseInt(frac, 10);
+  }
+
+  var memOwner = null;
   function loadOwner() {
-    try { var o = JSON.parse(localStorage.getItem(OWNER_KEY) || 'null'); return o && o.chave ? o : null; } catch (e) { return null; }
+    try { var o = JSON.parse(localStorage.getItem(OWNER_KEY) || 'null'); if (o && o.chave) return o; } catch (e) {}
+    return memOwner;
   }
   function saveOwner(o) {
+    memOwner = o || null;
     try { if (o) localStorage.setItem(OWNER_KEY, JSON.stringify(o)); else localStorage.removeItem(OWNER_KEY); } catch (e) {}
   }
   function newKey() {
@@ -117,7 +136,7 @@
   function applyLive(row) {
     var live = row && row.ativa ? row : null;
     var owner = loadOwner();
-    var mine = !!(live && owner && Date.parse(owner.iniciada_em) === Date.parse(live.iniciada_em));
+    var mine = !!(live && owner && tsMicros(owner.iniciada_em) === tsMicros(live.iniciada_em));
 
     if (live && mine && !st.playing) {
       // este aparelho iniciou a partida (por exemplo, a página foi recarregada): retoma o controle
@@ -340,21 +359,17 @@
 
   function playerCard(n, name, score, gp, serving, lock, control) {
     var pips = [0, 1].map(function (i) { return '<div class="pip' + (i < gp ? ' on' : '') + '"></div>'; }).join('');
-    var row = control
-      ? '<div class="score-row">' +
-          '<div class="rgb glow digits">' + pad(score) + '</div>' +
-          '<button class="btn big minus" type="button" aria-label="Tirar ponto do ' + n + 'P" data-act="sub" data-v="' + n + '">-</button>' +
-          '<button class="btn big plus" type="button" aria-label="Ponto para o ' + n + 'P" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') + '>+</button>' +
-        '</div>'
-      : '<div class="score-row watch"><div class="rgb glow digits">' + pad(score) + '</div></div>';
-    return '<div class="box player">' +
-      '<div class="tag">' + n + 'P</div>' +
-      '<div class="nm">' + esc(name) + '</div>' + row +
+    var inner =
+      '<div class="tag">' + n + 'P' + (control ? ' · TOQUE = PONTO' : '') + '</div>' +
+      '<div class="nm">' + esc(name) + '</div>' +
+      '<div class="score-row"><div class="rgb glow digits">' + pad(score) + '</div></div>' +
       '<div class="meta">' +
         '<div class="games"><span class="vt">JOGOS</span>' + pips + '</div>' +
         '<div class="serve-slot">' + (serving ? serveTag() : '') + '</div>' +
-      '</div>' +
       '</div>';
+    if (!control) return '<div class="box player">' + inner + '</div>';
+    return '<button class="box player tap" type="button" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') +
+      ' aria-label="Ponto para ' + esc(name) + ', ' + score + ' pontos">' + inner + '</button>';
   }
 
   function viewBoard() {
@@ -368,10 +383,10 @@
     else if (g.s1 >= 10 && g.s1 > g.s2) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name1; }
     else if (g.s2 >= 10 && g.s2 > g.s1) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name2; }
 
-    var stale = !control && st.live && (Date.now() - Date.parse(st.live.atualizada_em) > STALE_MS);
+    var stale = !control && st.live && (Date.now() - tsMicros(st.live.atualizada_em) / 1000 > STALE_MS);
     var h = '<section>';
     h += '<div class="live-head"><span class="dot" aria-hidden="true"></span><span class="lv">AO VIVO</span>' +
-      '<span class="vt who-marks">' + (control ? 'Você está marcando os pontos' : 'Só quem iniciou a partida marca os pontos') + '</span></div>';
+      '<span class="vt who-marks">' + (control ? 'Toque no placar de quem fez o ponto' : 'Só quem iniciou a partida marca os pontos') + '</span></div>';
     h += '<div class="board">';
     h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, !!g.w, control);
     h += '<div class="vs" aria-hidden="true">VS</div>';
@@ -396,7 +411,7 @@
       '<div class="status"><div class="k">STATUS</div><div class="t">' + esc(title) + '</div><div class="s">' + esc(sub) + '</div></div>';
     if (control) {
       h += '<div class="row center actions">' +
-        '<button class="btn ghost" type="button" data-act="resetPoints">ZERAR PONTOS</button>' +
+        '<button class="btn ghost" type="button" data-act="undo"' + (st.hist.length ? '' : ' disabled') + '>DESFAZER PONTO</button>' +
         '<button class="btn ghost' + (st.quitArm ? ' warn' : '') + '" type="button" data-act="quit"' + (st.busy ? ' disabled' : '') + '>' + (st.quitArm ? 'CONFIRMAR?' : 'ENCERRAR') + '</button>' +
         '</div>';
     } else if (stale) {
