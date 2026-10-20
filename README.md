@@ -30,9 +30,23 @@ Textos, números e botões crescem e encolhem com a tela, e os botões nunca fic
 
 ## Onde os dados ficam
 
-Jogadores, ranking e histórico ficam salvos no `localStorage` do navegador. Cada computador tem o seu próprio ranking. Limpar os dados do navegador apaga tudo.
+Jogadores e partidas ficam num banco [Supabase](https://supabase.com) compartilhado (projeto `placar-disputa-elsys`). Todo mundo que abre o site vê a mesma lista de jogadores e o mesmo ranking, e a tela se atualiza sozinha a cada 8 segundos.
 
-Na primeira abertura aparecem 4 jogadores e um ranking de exemplo. Para apagar, use o botão **APAGAR** na aba Jogadores.
+- **Cadastrar jogador** e **registrar partida** ficam salvos para todos.
+- **Remover jogador** tira o nome da lista e do ranking para todos, mas as partidas dele continuam no histórico.
+- A **partida em andamento** (os pontos de cada jogo) fica só no aparelho que está marcando. Ela vai para o banco quando alguém fecha a melhor de 3 e toca em **SALVAR NO RANKING**.
+- Pelo site ninguém consegue editar nomes, apagar partidas ou zerar o ranking. Isso é feito no painel do Supabase, em **Table Editor**.
+
+O site não tem login: qualquer pessoa com o link pode cadastrar e remover jogadores. Um jogador removido por engano pode ser recuperado no painel, mudando `ativo` para `true` na tabela `jogadores`.
+
+### Tabelas
+
+| Tabela | O que guarda |
+| --- | --- |
+| `jogadores` | `id`, `nome` (até 10 letras, maiúsculas, único entre os ativos), `ativo`, `criado_em` |
+| `partidas` | `jogador_a`, `jogador_b`, `jogos_a`, `jogos_b` (quem fez 2 venceu), `pontos_a`, `pontos_b`, `criado_em` |
+
+O endereço do banco e a chave pública ficam no topo do `app.js`. A chave pública pode ficar no código: ela só permite o que as regras do banco liberam.
 
 ## Arquivos
 
