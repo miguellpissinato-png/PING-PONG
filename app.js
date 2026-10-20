@@ -1,54 +1,86 @@
 /* Placar Disputa Elsys — lógica do placar, cadastro e ranking.
-   Os dados (jogadores, ranking, histórico) ficam no localStorage do navegador. */
+   Jogadores e partidas ficam num banco Supabase compartilhado: quem abre o site vê os mesmos
+   jogadores e o mesmo ranking. A partida em andamento (os pontos) fica só no aparelho que está marcando. */
 (function () {
   'use strict';
 
-  var KEY = 'disputa-elsys-v1';
-
-  function sampleData() {
-    return {
-      players: [{ id: 1, name: 'RAIO' }, { id: 2, name: 'TROVÃO' }, { id: 3, name: 'FAÍSCA' }, { id: 4, name: 'COMETA' }],
-      stats: {
-        1: { v: 3, d: 1, gp: 6, gc: 3, pts: 98 },
-        2: { v: 2, d: 1, gp: 5, gc: 3, pts: 84 },
-        3: { v: 1, d: 2, gp: 3, gc: 5, pts: 70 },
-        4: { v: 0, d: 2, gp: 1, gc: 4, pts: 41 }
-      },
-      history: [
-        { a: 'RAIO', ga: 2, b: 'FAÍSCA', gb: 1 },
-        { a: 'TROVÃO', ga: 2, b: 'COMETA', gb: 0 },
-        { a: 'RAIO', ga: 2, b: 'TROVÃO', gb: 1 }
-      ],
-      nextId: 5,
-      sample: true
-    };
-  }
-
-  var saved = null;
-  try { var raw = localStorage.getItem(KEY); if (raw) saved = JSON.parse(raw); } catch (e) { saved = null; }
-  var base = (saved && Array.isArray(saved.players)) ? saved : sampleData();
+  /* Endereço do banco e chave pública (publishable). A chave só permite o que as regras do banco liberam:
+     ver jogadores e partidas, cadastrar jogador, registrar partida e tirar jogador da lista. */
+  var DB_URL = 'https://idpwiefikugfqumjpfpa.supabase.co';
+  var DB_KEY = 'sb_publishable_Cx_TgsTk8eKstxL6_PGg6Q_8eAmeBve';
+  var REFRESH_MS = 8000;
 
   var st = {
     tab: 'partida',
-    players: base.players, stats: base.stats || {}, history: base.history || [],
-    nextId: base.nextId || 1, sample: !!base.sample,
-    draft: '', msg: '', delArm: null, resetArm: false,
+    players: [],       // jogadores ativos [{id, name}]
+    names: {},         // id -> nome, inclusive de quem saiu da lista (para o histórico)
+    matches: [],       // partidas encerradas, mais recentes primeiro
+    loaded: false, netErr: false, busy: false,
+    draft: '', msg: '', delArm: null,
     picked: [], firstPick: 1,
-    playing: false, m1: null, m2: null, hist: [], g1: 0, g2: 0, first: 1, pts1: 0, pts2: 0, quitArm: false
+    playing: false, m1: null, m2: null, hist: [], g1: 0, g2: 0, first: 1, pts1: 0, pts2: 0, quitArm: false,
+    saveErr: ''
   };
-
-  function save() {
-    try {
-      localStorage.setItem(KEY, JSON.stringify({
-        players: st.players, stats: st.stats, history: st.history, nextId: st.nextId, sample: st.sample
-      }));
-    } catch (e) { /* armazenamento indisponível: segue só em memória */ }
-  }
 
   function set(patch) {
     for (var k in patch) st[k] = patch[k];
-    save();
     render();
+  }
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { apikey: DB_KEY, 'Content-Type': 'application/json' };
+    if (opts.prefer) headers.Prefer = opts.prefer;
+    return fetch(DB_URL + '/rest/v1/' + path, {
+      method: opts.method || 'GET', headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (r) {
+      if (r.ok) return r.status === 204 ? null : r.text().then(function (t) { return t ? JSON.parse(t) : null; });
+      return r.text().then(function (t) {
+        var err = new Error('HTTP ' + r.status); err.status = r.status;
+        try { err.body = JSON.parse(t); } catch (e) { err.body = t; }
+        throw err;
+      });
+    });
+  }
+
+  var lastSnapshot = '';
+  function refresh() {
+    return Promise.all([
+      api('jogadores?select=id,nome,ativo&order=nome.asc'),
+      api('partidas?select=id,jogador_a,jogador_b,jogos_a,jogos_b,pontos_a,pontos_b,criado_em&order=criado_em.desc&limit=5000')
+    ]).then(function (res) {
+      var snap = JSON.stringify(res);
+      var wasErr = st.netErr;
+      st.loaded = true; st.netErr = false;
+      if (snap === lastSnapshot && !wasErr) return;
+      lastSnapshot = snap;
+      var names = {}, players = [];
+      res[0].forEach(function (j) {
+        names[j.id] = j.nome;
+        if (j.ativo) players.push({ id: j.id, name: j.nome });
+      });
+      var active = {};
+      players.forEach(function (p) { active[p.id] = true; });
+      st.names = names; st.players = players; st.matches = res[1];
+      st.picked = st.picked.filter(function (id) { return active[id]; });
+      if (st.delArm && !active[st.delArm]) st.delArm = null;
+      render();
+    }).catch(function () {
+      if (!st.netErr || !st.loaded) { st.netErr = true; st.loaded = true; render(); }
+    });
+  }
+
+  function stats() {
+    var out = {};
+    function get(id) { return out[id] || (out[id] = { v: 0, d: 0, gp: 0, gc: 0, pts: 0 }); }
+    st.matches.forEach(function (m) {
+      var a = get(m.jogador_a), b = get(m.jogador_b);
+      a.gp += m.jogos_a; a.gc += m.jogos_b; a.pts += m.pontos_a;
+      b.gp += m.jogos_b; b.gc += m.jogos_a; b.pts += m.pontos_b;
+      if (m.jogos_a > m.jogos_b) { a.v += 1; b.d += 1; } else { b.v += 1; a.d += 1; }
+    });
+    return out;
   }
 
   function esc(s) {
@@ -58,8 +90,7 @@
   }
   function pad(n) { return n < 10 ? '0' + n : String(n); }
   function nameOf(id) {
-    for (var i = 0; i < st.players.length; i++) if (st.players[i].id === id) return st.players[i].name;
-    return '---';
+    return st.names[id] || '---';
   }
 
   /* ---------- estado derivado da partida ---------- */
@@ -85,21 +116,19 @@
   }
 
   function finishMatch(g) {
-    var stats = Object.assign({}, st.stats);
-    var blank = { v: 0, d: 0, gp: 0, gc: 0, pts: 0 };
-    var a = Object.assign({}, blank, stats[st.m1]);
-    var b = Object.assign({}, blank, stats[st.m2]);
-    a.gp += g.gp1; a.gc += g.gp2; a.pts += st.pts1 + g.s1;
-    b.gp += g.gp2; b.gc += g.gp1; b.pts += st.pts2 + g.s2;
-    if (g.champ === 1) { a.v += 1; b.d += 1; } else { b.v += 1; a.d += 1; }
-    stats[st.m1] = a; stats[st.m2] = b;
-    var entry = g.champ === 1
-      ? { a: g.name1, ga: g.gp1, b: g.name2, gb: g.gp2 }
-      : { a: g.name2, ga: g.gp2, b: g.name1, gb: g.gp1 };
-    set({
-      stats: stats, history: [entry].concat(st.history).slice(0, 5),
-      playing: false, hist: [], g1: 0, g2: 0, pts1: 0, pts2: 0, picked: [], firstPick: 1,
-      tab: 'ranking', quitArm: false
+    if (st.busy) return;
+    set({ busy: true, saveErr: '' });
+    api('partidas', {
+      method: 'POST', prefer: 'return=minimal',
+      body: { jogador_a: st.m1, jogador_b: st.m2, jogos_a: g.gp1, jogos_b: g.gp2,
+              pontos_a: st.pts1 + g.s1, pontos_b: st.pts2 + g.s2 }
+    }).then(function () {
+      st.busy = false;
+      set({ playing: false, hist: [], g1: 0, g2: 0, pts1: 0, pts2: 0, picked: [], firstPick: 1,
+            tab: 'ranking', quitArm: false });
+      refresh();
+    }).catch(function () {
+      set({ busy: false, saveErr: 'Não deu para salvar. Confira a internet e toque de novo.' });
     });
   }
 
@@ -108,7 +137,9 @@
     function t(id, label) {
       return '<button class="tab' + (st.tab === id ? ' on' : '') + '" type="button" data-act="tab" data-v="' + id + '">' + label + '</button>';
     }
-    return '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('jogadores', 'JOGADORES') + t('ranking', 'RANKING') + '</nav>';
+    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('jogadores', 'JOGADORES') + t('ranking', 'RANKING') + '</nav>';
+    if (st.netErr) bar += '<div class="net" role="status">SEM CONEXÃO COM O PLACAR ONLINE · TENTANDO DE NOVO</div>';
+    return bar;
   }
 
   function viewSetup() {
@@ -121,7 +152,9 @@
       '<div class="vs">VS</div>' +
       '<div class="box slot"><div class="lbl">2P</div><div class="glow nm">' + esc(slot2) + '</div></div>' +
       '</div>';
-    if (st.players.length) {
+    if (!st.loaded) {
+      h += '<div class="note dim blink">Carregando jogadores...</div>';
+    } else if (st.players.length) {
       h += '<div class="note">Toque em 2 jogadores. O primeiro vira o 1P.</div>';
       h += '<div class="scroll roster">';
       st.players.forEach(function (pl) {
@@ -188,8 +221,8 @@
         '<div class="score">' + (g.champ ? ('JOGOS ' + g.gp1 + ' x ' + g.gp2) : (pad(g.s1) + ' x ' + pad(g.s2))) + '</div>' +
         '<div class="row center">' +
           '<button class="btn ghost" type="button" data-act="undo">DESFAZER</button>' +
-          '<button class="btn go" type="button" data-act="banner">' + (g.champ ? 'SALVAR NO RANKING' : 'PRÓXIMO JOGO') + '</button>' +
-        '</div></div>';
+          '<button class="btn go" type="button" data-act="banner"' + (st.busy ? ' disabled' : '') + '>' + (g.champ ? (st.busy ? 'SALVANDO...' : 'SALVAR NO RANKING') : 'PRÓXIMO JOGO') + '</button>' +
+        '</div>' + (st.saveErr ? '<div class="err">' + esc(st.saveErr) + '</div>' : '') + '</div>';
     }
     h += '</div>';
     h += '<div class="bottom-bar">' +
@@ -206,13 +239,9 @@
     h += '<form id="addForm" class="add-form">' +
       '<label class="lbl" for="novoJogador">NOVO JOGADOR</label>' +
       '<div class="row"><input id="novoJogador" class="field" type="text" placeholder="APELIDO" maxlength="10" autocomplete="off" value="' + esc(st.draft) + '">' +
-      '<button class="btn go" type="submit">ADICIONAR</button></div>' +
+      '<button class="btn go" type="submit"' + (st.busy ? ' disabled' : '') + '>' + (st.busy ? 'SALVANDO' : 'ADICIONAR') + '</button></div>' +
       '<div id="msg" class="err">' + esc(st.msg) + '</div>' +
       '</form>';
-    if (st.sample) {
-      h += '<div class="box sample-box"><div class="note">Jogadores e ranking atuais são exemplos.</div>' +
-        '<button class="btn ghost" type="button" data-act="clearSample">APAGAR</button></div>';
-    }
     h += '<div class="lbl">CADASTRADOS · ' + st.players.length + '</div>';
     h += '<div class="people">';
     st.players.forEach(function (p) {
@@ -223,13 +252,16 @@
         '</div>';
     });
     h += '</div>';
-    if (!st.players.length) h += '<div class="note dim">Ninguém cadastrado ainda. Digite um apelido acima.</div>';
+    if (!st.loaded) h += '<div class="note dim blink">Carregando jogadores...</div>';
+    else if (!st.players.length) h += '<div class="note dim">Ninguém cadastrado ainda. Digite um apelido acima.</div>';
+    h += '<div class="legend">Todo mundo que abre o placar vê esta lista. Remover tira o jogador da lista e do ranking para todos; as partidas dele continuam no histórico.</div>';
     return h + '</section>';
   }
 
   function viewRanking() {
+    var all = stats();
     var rows = st.players.map(function (p) {
-      var s = Object.assign({ v: 0, d: 0, gp: 0, gc: 0, pts: 0 }, st.stats[p.id]);
+      var s = Object.assign({ v: 0, d: 0, gp: 0, gc: 0, pts: 0 }, all[p.id]);
       return { name: p.name, v: s.v, d: s.d, sj: s.gp - s.gc, pts: s.pts };
     });
     rows.sort(function (x, y) { return (y.v - x.v) || (y.sj - x.sj) || (y.pts - x.pts) || x.name.localeCompare(y.name); });
@@ -243,17 +275,20 @@
         '<span class="r">' + r.v + '</span><span class="r">' + r.d + '</span>' +
         '<span class="r">' + (r.sj > 0 ? '+' + r.sj : r.sj) + '</span><span class="r">' + r.pts + '</span></div>';
     });
-    if (!rows.length) h += '<div class="note dim" style="padding: var(--gap)">Cadastre jogadores para montar o ranking.</div>';
+    if (!st.loaded) h += '<div class="note dim blink" style="padding: var(--gap)">Carregando ranking...</div>';
+    else if (!rows.length) h += '<div class="note dim" style="padding: var(--gap)">Cadastre jogadores para montar o ranking.</div>';
     h += '</div>';
     h += '<div class="legend">V vitórias · D derrotas · SJ saldo de jogos · PTS pontos feitos</div></div>';
     h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
-    st.history.forEach(function (m) {
-      h += '<div class="note">' + esc(m.a + '  ' + m.ga + ' x ' + m.gb + '  ' + m.b) + '</div>';
+    st.matches.slice(0, 5).forEach(function (m) {
+      var aWon = m.jogos_a > m.jogos_b;
+      var line = aWon
+        ? nameOf(m.jogador_a) + '  ' + m.jogos_a + ' x ' + m.jogos_b + '  ' + nameOf(m.jogador_b)
+        : nameOf(m.jogador_b) + '  ' + m.jogos_b + ' x ' + m.jogos_a + '  ' + nameOf(m.jogador_a);
+      h += '<div class="note">' + esc(line) + '</div>';
     });
-    if (!st.history.length) h += '<div class="note dim">Nenhuma partida registrada.</div>';
+    if (st.loaded && !st.matches.length) h += '<div class="note dim">Nenhuma partida registrada.</div>';
     h += '</div></div><div class="grow"></div>';
-    h += '<div class="row center"><button class="btn ghost' + (st.resetArm ? ' warn' : '') + '" type="button" data-act="resetRank">' +
-      (st.resetArm ? 'CONFIRMAR ZERAR?' : 'ZERAR RANKING') + '</button></div>';
     return h + '</section>';
   }
 
@@ -265,8 +300,17 @@
     if (st.tab === 'jogadores') body = viewJogadores();
     else if (st.tab === 'ranking') body = viewRanking();
     else body = st.playing ? viewBoard() : viewSetup();
+    // a lista se atualiza sozinha; quem está digitando um apelido não perde o que digitou
+    var typing = document.activeElement && document.activeElement.id === 'novoJogador';
+    var caret = typing ? document.activeElement.selectionStart : null;
+    var scroll = view.scrollTop;
     tabbar.innerHTML = tabs();
     view.innerHTML = body;
+    view.scrollTop = scroll;
+    if (typing) {
+      var inp = document.getElementById('novoJogador');
+      if (inp) { inp.focus(); try { inp.setSelectionRange(caret, caret); } catch (e) {} }
+    }
   }
 
   /* ---------- ações ---------- */
@@ -279,7 +323,7 @@
 
     switch (act) {
       case 'tab':
-        set({ tab: v, delArm: null, resetArm: false, quitArm: false });
+        set({ tab: v, delArm: null, quitArm: false });
         break;
       case 'pick': {
         var id = Number(v), cur = st.picked.slice(), i = cur.indexOf(id);
@@ -320,20 +364,12 @@
       case 'del': {
         var pid = Number(v);
         if (st.delArm !== pid) { set({ delArm: pid }); break; }
-        set({
-          players: st.players.filter(function (x) { return x.id !== pid; }),
-          picked: st.picked.filter(function (x) { return x !== pid; }),
-          delArm: null
-        });
+        set({ busy: true, delArm: null });
+        api('rpc/remover_jogador', { method: 'POST', body: { p_id: pid } })
+          .then(function () { st.busy = false; return refresh(); })
+          .catch(function () { set({ busy: false, msg: 'Não deu para remover. Confira a internet e tente de novo.' }); });
         break;
       }
-      case 'clearSample':
-        set({ players: [], stats: {}, history: [], nextId: 1, sample: false, picked: [], delArm: null });
-        break;
-      case 'resetRank':
-        if (!st.resetArm) set({ resetArm: true });
-        else set({ stats: {}, history: [], resetArm: false });
-        break;
     }
   }
   view.addEventListener('click', onClick);
@@ -350,13 +386,28 @@
   view.addEventListener('submit', function (e) {
     if (e.target.id !== 'addForm') return;
     e.preventDefault();
-    var nm = (st.draft || '').trim();
-    if (!nm) { set({ msg: 'Digite um apelido.' }); }
-    else if (st.players.some(function (p) { return p.name === nm; })) { set({ msg: nm + ' já está na lista.' }); }
-    else { set({ players: st.players.concat([{ id: st.nextId, name: nm }]), nextId: st.nextId + 1, draft: '', msg: '' }); }
-    var inp = document.getElementById('novoJogador');
-    if (inp) inp.focus();
+    if (st.busy) return;
+    var nm = (st.draft || '').trim().toUpperCase().slice(0, 10);
+    if (!nm) { set({ msg: 'Digite um apelido.' }); return; }
+    if (st.players.some(function (p) { return p.name === nm; })) { set({ msg: nm + ' já está na lista.' }); return; }
+    set({ busy: true, msg: '' });
+    api('jogadores', { method: 'POST', prefer: 'return=minimal', body: { nome: nm } })
+      .then(function () {
+        st.busy = false; st.draft = '';
+        return refresh().then(function () {
+          render();
+          var inp = document.getElementById('novoJogador');
+          if (inp) inp.focus();
+        });
+      })
+      .catch(function (err) {
+        var dup = err && err.status === 409;
+        set({ busy: false, msg: dup ? nm + ' já está na lista.' : 'Não deu para cadastrar. Confira a internet e tente de novo.' });
+      });
   });
 
   render();
+  refresh();
+  setInterval(function () { if (!document.hidden) refresh(); }, REFRESH_MS);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
 })();
