@@ -18,6 +18,8 @@
   var st = {
     tab: 'partida',
     players: [], names: {}, matches: [],
+    seenMatches: null,   // ids de partidas já conhecidas (null até a primeira carga)
+    winFlash: null,      // { match, winner, loser, until } — destaque do vencedor recém-salvo
     loaded: false, netErr: false, busy: false,
     draft: '', msg: '', delArm: null,
     picked: [], firstPick: 1, startErr: '',
@@ -81,12 +83,33 @@
         if (j.ativo) { players.push({ id: j.id, name: j.nome }); active[j.id] = true; }
       });
       st.names = names; st.players = players; st.matches = res[1];
+      noticeNewMatch(res[1]);
       st.picked = st.picked.filter(function (id) { return active[id]; });
       if (st.delArm && !active[st.delArm]) st.delArm = null;
       render();
     }).catch(function () {
       if (!st.netErr || !st.loaded) { st.netErr = true; st.loaded = true; render(); }
     });
+  }
+
+  /* Quando aparece uma partida salva que este aparelho ainda não conhecia, o vencedor ganha destaque
+     no ranking e quem estava acompanhando a partida é levado para a aba Ranking. */
+  var FLASH_MS = 15000;
+  function noticeNewMatch(matches) {
+    if (st.seenMatches === null) {
+      st.seenMatches = {};
+      matches.forEach(function (m) { st.seenMatches[m.id] = true; });
+      return;
+    }
+    var fresh = matches.filter(function (m) { return !st.seenMatches[m.id]; });
+    fresh.forEach(function (m) { st.seenMatches[m.id] = true; });
+    if (!fresh.length) return;
+    var m = fresh[0]; // mais recente primeiro
+    var aWon = m.jogos_a > m.jogos_b;
+    st.winFlash = { match: m.id, winner: aWon ? m.jogador_a : m.jogador_b, loser: aWon ? m.jogador_b : m.jogador_a,
+                    score: aWon ? m.jogos_a + ' x ' + m.jogos_b : m.jogos_b + ' x ' + m.jogos_a, until: Date.now() + FLASH_MS };
+    if (st.tab === 'partida' && !st.playing) st.tab = 'ranking';
+    setTimeout(function () { if (st.winFlash && Date.now() >= st.winFlash.until) { st.winFlash = null; render(); } }, FLASH_MS + 50);
   }
 
   /* Recebe a linha da partida ao vivo (do banco ou do tempo real) e decide o que este aparelho mostra. */
@@ -413,25 +436,34 @@
 
   function viewRanking() {
     var all = stats();
+    var flash = st.winFlash && Date.now() < st.winFlash.until ? st.winFlash : null;
     var rows = st.players.map(function (p) {
       var s = Object.assign({ v: 0, d: 0, gp: 0, gc: 0, pts: 0 }, all[p.id]);
-      return { name: p.name, v: s.v, d: s.d, sj: s.gp - s.gc, pts: s.pts };
+      // pontos no ranking: 1 por vitória
+      return { id: p.id, name: p.name, rank: s.v, j: s.v + s.d, d: s.d, sj: s.gp - s.gc, feitos: s.pts };
     });
-    rows.sort(function (x, y) { return (y.v - x.v) || (y.sj - x.sj) || (y.pts - x.pts) || x.name.localeCompare(y.name); });
+    rows.sort(function (x, y) { return (y.rank - x.rank) || (y.sj - x.sj) || (y.feitos - x.feitos) || x.name.localeCompare(y.name); });
 
-    var h = '<section><div class="rank-layout"><div class="stack">';
+    var h = '<section>';
+    if (flash) {
+      h += '<div class="win-news" role="status"><span class="plus blink">+1</span>' +
+        '<span>' + esc(nameOf(flash.winner)) + ' venceu ' + esc(nameOf(flash.loser)) + ' por ' + flash.score + '</span></div>';
+    }
+    h += '<div class="rank-layout"><div class="stack">';
     h += '<div class="box rank-box">' +
-      '<div class="rk head"><span>#</span><span>JOGADOR</span><span class="r">V</span><span class="r">D</span><span class="r">SJ</span><span class="r">PTS</span></div>';
+      '<div class="rk head"><span>#</span><span>JOGADOR</span><span class="r">PTS</span><span class="r">J</span><span class="r">D</span><span class="r">SJ</span></div>';
     rows.forEach(function (r, i) {
-      var top = i === 0 && (r.v > 0 || r.pts > 0);
-      h += '<div class="rk line' + (top ? ' top' : '') + '"><span>' + (i + 1) + 'º</span><span class="n">' + esc(r.name) + '</span>' +
-        '<span class="r">' + r.v + '</span><span class="r">' + r.d + '</span>' +
-        '<span class="r">' + (r.sj > 0 ? '+' + r.sj : r.sj) + '</span><span class="r">' + r.pts + '</span></div>';
+      var top = i === 0 && r.rank > 0;
+      var won = flash && flash.winner === r.id;
+      h += '<div class="rk line' + (top ? ' top' : '') + (won ? ' won' : '') + '"><span>' + (i + 1) + 'º</span><span class="n">' + esc(r.name) + '</span>' +
+        '<span class="r pts">' + (won ? '<span class="plus blink">+1</span>' : '') + r.rank + '</span>' +
+        '<span class="r">' + r.j + '</span><span class="r">' + r.d + '</span>' +
+        '<span class="r">' + (r.sj > 0 ? '+' + r.sj : r.sj) + '</span></div>';
     });
     if (!st.loaded) h += '<div class="note dim blink" style="padding: var(--gap)">Carregando ranking...</div>';
     else if (!rows.length) h += '<div class="note dim" style="padding: var(--gap)">Cadastre jogadores para montar o ranking.</div>';
     h += '</div>';
-    h += '<div class="legend">V vitórias · D derrotas · SJ saldo de jogos · PTS pontos feitos</div></div>';
+    h += '<div class="legend">PTS 1 ponto por vitória · J partidas · D derrotas · SJ saldo de jogos (desempate)</div></div>';
     h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
     st.matches.slice(0, 5).forEach(function (m) {
       var aWon = m.jogos_a > m.jogos_b;

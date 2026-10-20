@@ -8,7 +8,7 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
 - **Placar:** botões + e − para cada jogador, jogos ganhos (melhor de 3) e status (igualdade, ponto de jogo, vencedor).
 - **Regras:** o jogo vai até 11 pontos com vantagem de 2, e o saque é de quem fez o último ponto.
 - **Jogadores:** cadastre e remova apelidos (até 10 letras).
-- **Ranking:** ordenado por vitórias, depois saldo de jogos, depois pontos feitos, com as últimas 5 partidas.
+- **Ranking:** cada vitória vale 1 ponto (PTS). Empates são decididos pelo saldo de jogos e depois pelos pontos feitos. Mostra também as últimas 5 partidas. Quando uma partida é salva, todo mundo que estava acompanhando vai direto para o ranking e o vencedor aparece com um +1 piscando por 15 segundos.
 
 ## Como usar
 
