@@ -331,7 +331,7 @@
     var server = hist.length ? hist[hist.length - 1] : src.first;
     var name1 = nameOf(src.m1), name2 = nameOf(src.m2);
     return { s1: s1, s2: s2, w: w, gp1: gp1, gp2: gp2, champ: champ, server: server, name1: name1, name2: name2,
-             wName: w === 1 ? name1 : name2, pts1: src.pts1, pts2: src.pts2 };
+             wName: w === 1 ? name1 : name2, pts1: src.pts1, pts2: src.pts2, jogo: src.g1 + src.g2 + 1 };
   }
 
   function dropLast(p) {
@@ -455,23 +455,30 @@
   }
 
   function serveTag() {
-    return '<div class="blink serve"><svg viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true"><path fill="#f4f7ff" d="M1 0h4v1h-4zM0 1h6v4h-6zM1 5h4v1h-4z"/></svg>SAQUE</div>';
+    return '<span class="blink serve-chip"><svg viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true"><path fill="#050a1c" d="M1 0h4v1h-4zM0 1h6v4h-6zM1 5h4v1h-4z"/></svg>SAQUE</span>';
+  }
+
+  /* raquetes de enfeite em volta da mesa: vermelha do lado do 1P, preta do lado do 2P */
+  var PADDLE_SHAPE = 'M4 0h6v1h-6zM2 1h10v1h-10zM1 2h12v2h-12zM0 4h14v6h-14zM1 10h12v2h-12zM2 12h10v1h-10zM5 13h4v7h-4z';
+  var PADDLE_FACE = 'M4 1h6v1h-6zM2 2h10v2h-10zM1 4h12v6h-12zM2 10h10v1h-10zM4 11h6v1h-6z';
+  var PADDLE_SHINE = 'M4 2h2v1h-2zM3 3h2v1h-2zM2 4h1v2h-1z';
+  function tablePaddle(cls, rim, face, shine) {
+    return '<svg class="rq ' + cls + '" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true">' +
+      '<path fill="' + rim + '" d="' + PADDLE_SHAPE + '"/><path fill="' + face + '" d="' + PADDLE_FACE + '"/>' +
+      '<path fill="' + shine + '" d="' + PADDLE_SHINE + '"/><path fill="#e0a868" d="M6 13h2v6h-2z"/></svg>';
   }
 
   function playerCard(n, name, score, gp, serving, lock, control) {
     var pips = [0, 1].map(function (i) { return '<div class="pip' + (i < gp ? ' on' : '') + '"></div>'; }).join('');
     var inner =
       '<div class="tag">' + n + 'P' + (control ? ' · 1 TOQUE +1 · 2 TOQUES −1' : '') + '</div>' +
-      '<div class="nm">' + esc(name) + '</div>' +
+      '<div class="nm-row"><span class="nm">' + esc(name) + '</span>' + (serving ? serveTag() : '') + '</div>' +
       '<div class="score-row"><div class="rgb glow digits">' + pad(score) + '</div></div>' +
-      '<div class="meta">' +
-        '<div class="games"><span class="vt">JOGOS</span>' + pips + '</div>' +
-        '<div class="serve-slot">' + (serving ? serveTag() : '') + '</div>' +
-      '</div>';
+      '<div class="meta"><div class="games"><span class="vt">JOGOS</span>' + pips + '</div></div>';
     var fx = st.tapFx && st.tapFx.v === n && Date.now() < st.tapFx.until
       ? '<span class="tap-fx' + (st.tapFx.minus ? ' minus' : '') + '" aria-hidden="true">' + st.tapFx.text + '</span>' : '';
-    if (!control) return '<div class="box player">' + inner + '</div>';
-    return '<button class="box player tap" type="button" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') +
+    if (!control) return '<div class="box player p' + n + '">' + inner + '</div>';
+    return '<button class="box player tap p' + n + '" type="button" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') +
       ' aria-label="' + esc(name) + ', ' + score + ' pontos. Um toque marca ponto, dois toques tiram um ponto.">' + inner + fx + '</button>';
   }
 
@@ -480,6 +487,10 @@
     var g = game();
     var hi = Math.max(g.s1, g.s2), lo = Math.min(g.s1, g.s2);
     var title = 'EM JOGO', sub = 'Saque: ' + (g.server === 1 ? g.name1 : g.name2);
+    if (g.s1 !== g.s2) {
+      var diff = Math.abs(g.s1 - g.s2);
+      sub = (g.s1 > g.s2 ? g.name1 : g.name2) + ' lidera · ' + diff + ' ponto' + (diff > 1 ? 's' : '') + ' à frente';
+    } else if (g.s1 > 0) sub = 'Empate em ' + g.s1 + ' · saque: ' + (g.server === 1 ? g.name1 : g.name2);
     if (g.w && g.champ) { title = 'FIM DA DISPUTA'; sub = g.wName + ' venceu por ' + g.gp1 + ' a ' + g.gp2; }
     else if (g.w) { title = 'FIM DE JOGO'; sub = g.wName + ' venceu ' + hi + ' a ' + lo; }
     else if (g.s1 >= 10 && g.s2 >= 10 && g.s1 === g.s2) { title = 'IGUALDADE'; sub = 'Quem abrir 2 pontos vence'; }
@@ -489,11 +500,14 @@
     var stale = !control && st.live && (Date.now() - tsMicros(st.live.atualizada_em) / 1000 > STALE_MS);
     var h = '<section>';
     h += '<div class="live-head"><span class="dot" aria-hidden="true"></span><span class="lv">AO VIVO</span>' +
+      '<span class="vt jogo-n">JOGO ' + Math.min(g.jogo, 3) + ' · MELHOR DE 3</span>' +
       '<span class="vt who-marks">' + (control ? '1 toque no placar = ponto · 2 toques rápidos = tira ponto' : 'Só quem iniciou a partida marca os pontos') + '</span></div>';
-    h += '<div class="board">';
+    h += '<div class="board mesa">';
+    h += '<div class="mesa-linha" aria-hidden="true"></div>';
     h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, !!g.w, control);
-    h += '<div class="vs" aria-hidden="true">VS</div>';
+    h += '<div class="rede" aria-hidden="true"></div>';
     h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, !!g.w, control);
+    h += tablePaddle('r1', '#060a1d', '#e8283a', '#ff8f97') + tablePaddle('r2', '#c9d4ff', '#1b1f2e', '#4a5275');
     if (g.w) {
       h += '<div class="banner">' +
         '<div class="kicker">' + (g.champ ? 'CAMPEÃO DA DISPUTA' : 'VENCEDOR DO JOGO') + '</div>' +
