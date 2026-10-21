@@ -19,6 +19,7 @@
   var DOUBLE_TAP_MS = 320;                      // dois toques no mesmo placar dentro deste tempo tiram 1 ponto
   var TUTORIAL_KEY = 'disputa-elsys-tutorial-v2'; // este aparelho já viu o tutorial
   var EU_KEY = 'disputa-elsys-eu';              // jogador que a pessoa marcou como "este sou eu" neste aparelho
+  var REGRA_KEY = 'disputa-elsys-regras';       // últimas regras escolhidas neste aparelho
 
   var st = {
     tab: 'partida',
@@ -32,10 +33,13 @@
     jog: null,           // jogador aberto na aba Jogadores
     novo: false, novoNome: '', novoErr: '', histFiltro: '',
     picked: [], firstPick: 1, startErr: '',
+    // regras da próxima partida (escolhidas antes de INICIAR; o aparelho lembra as últimas usadas)
+    regra: null, regraTxt: null, regraAberta: false,
     live: null,          // partida ao vivo vinda do banco (ou null)
     rt: false,           // tempo real conectado
     // partida que ESTE aparelho está marcando
     playing: false, m1: null, m2: null, hist: [], g1: 0, g2: 0, first: 1, pts1: 0, pts2: 0,
+    mregra: null,        // regras da partida que este aparelho está marcando
     quitArm: false, saveErr: '', syncErr: '',
     tapFx: null,         // { v, text, minus, until } — +1 / −1 que aparece no placar tocado
     onb: null,           // passo do tutorial aberto (ou null)
@@ -103,6 +107,58 @@
   function saveEu(id) {
     try { if (id) localStorage.setItem(EU_KEY, String(id)); else localStorage.removeItem(EU_KEY); } catch (e) {}
     set({ eu: id || null });
+  }
+
+  /* ---------- regras da partida ----------
+     Cada partida tem as próprias regras, escolhidas por quem inicia. Nada é fixo no sistema:
+     pontos  pontos para vencer um jogo (qualquer número a partir de 1)
+     vantagem  true = empatou perto do fim, vence quem abrir 2 pontos; false = quem chegar primeiro vence
+     direto  vitória direta: quem fizer esse número de pontos antes de o adversário marcar vence na hora (0 = desligada)
+     jogos  jogos que é preciso vencer para levar a partida (1 = jogo único, 2 = melhor de 3...) */
+  var REGRA_PADRAO = { pontos: 11, vantagem: true, direto: false, diretoN: 3, jogos: 2 };
+  function loadRegra() {
+    var r = Object.assign({}, REGRA_PADRAO);
+    try {
+      var s = JSON.parse(localStorage.getItem(REGRA_KEY) || 'null');
+      if (s) {
+        if (s.pontos >= 1) r.pontos = Math.floor(s.pontos);
+        if (typeof s.vantagem === 'boolean') r.vantagem = s.vantagem;
+        if (typeof s.direto === 'boolean') r.direto = s.direto;
+        if (s.diretoN >= 1) r.diretoN = Math.floor(s.diretoN);
+        if (s.jogos >= 1) r.jogos = Math.floor(s.jogos);
+      }
+    } catch (e) {}
+    return r;
+  }
+  function saveRegra() {
+    try { localStorage.setItem(REGRA_KEY, JSON.stringify(st.regra)); } catch (e) {}
+  }
+  function regraTexto(r) { return { pontos: String(r.pontos), diretoN: String(r.diretoN) }; }
+  // regras da partida a partir das escolhas na tela de preparação
+  function regraDoEditor() {
+    var r = st.regra;
+    return { pontos: r.pontos, vantagem: r.vantagem, direto: r.direto ? r.diretoN : 0, jogos: r.jogos };
+  }
+  // regras de uma partida vinda do banco (as antigas não têm regra: 11 pontos, vantagem de 2, melhor de 3)
+  function regraDe(row) {
+    return {
+      pontos: row && row.regra_pontos >= 1 ? row.regra_pontos : 11,
+      vantagem: !(row && row.regra_vantagem === false),
+      direto: row && row.regra_direto >= 1 ? row.regra_direto : 0,
+      jogos: row && row.regra_jogos >= 1 ? row.regra_jogos : 2
+    };
+  }
+  function jogosTexto(j) { return j === 1 ? 'JOGO ÚNICO' : 'MELHOR DE ' + (2 * j - 1); }
+  function regraResumo(r) {
+    var p = [(r.pontos === 1 ? '1 PONTO' : r.pontos + ' PONTOS')];
+    p.push(r.vantagem ? 'VANTAGEM DE 2' : 'SEM VANTAGEM');
+    if (r.direto) p.push('DIRETO EM ' + r.direto);
+    p.push(jogosTexto(r.jogos));
+    return p.join(' · ');
+  }
+  // placar de uma partida salva: jogo único mostra os pontos; mais de um jogo mostra os jogos
+  function placar(m) {
+    return regraDe(m).jogos === 1 ? [m.pontos_a, m.pontos_b] : [m.jogos_a, m.jogos_b];
   }
 
   /* Login de admin guardado neste aparelho. Só vale para quem é dono ou admin. */
@@ -210,7 +266,7 @@
   function refresh() {
     return Promise.all([
       api('jogadores?select=id,nome,ativo&order=nome.asc'),
-      api('partidas?select=id,jogador_a,jogador_b,jogos_a,jogos_b,pontos_a,pontos_b,criado_em&order=criado_em.desc&limit=5000')
+      api('partidas?select=id,jogador_a,jogador_b,jogos_a,jogos_b,pontos_a,pontos_b,regra_pontos,regra_vantagem,regra_direto,regra_jogos,criado_em&order=criado_em.desc&limit=5000')
     ]).then(function (res) {
       var snap = JSON.stringify(res);
       var wasErr = st.netErr;
@@ -246,9 +302,9 @@
     fresh.forEach(function (m) { st.seenMatches[m.id] = true; });
     if (!fresh.length) return;
     var m = fresh[0]; // mais recente primeiro
-    var aWon = m.jogos_a > m.jogos_b;
+    var aWon = m.jogos_a > m.jogos_b, pl = placar(m);
     st.winFlash = { match: m.id, winner: aWon ? m.jogador_a : m.jogador_b, loser: aWon ? m.jogador_b : m.jogador_a,
-                    score: aWon ? m.jogos_a + ' x ' + m.jogos_b : m.jogos_b + ' x ' + m.jogos_a, until: Date.now() + FLASH_MS };
+                    score: aWon ? pl[0] + ' x ' + pl[1] : pl[1] + ' x ' + pl[0], until: Date.now() + FLASH_MS };
     if (st.tab === 'partida' && !st.playing) st.tab = 'ranking';
     setTimeout(function () { if (st.winFlash && Date.now() >= st.winFlash.until) { st.winFlash = null; render(); } }, FLASH_MS + 50);
   }
@@ -265,6 +321,7 @@
       st.playing = true;
       st.m1 = live.jogador_a; st.m2 = live.jogador_b; st.hist = (live.pontos || []).slice();
       st.g1 = live.jogos_a; st.g2 = live.jogos_b; st.pts1 = live.pts_a; st.pts2 = live.pts_b; st.first = live.primeiro;
+      st.mregra = regraDe(live);
     }
     if (st.playing && !mine) {
       // a partida foi encerrada ou liberada em outro lugar
@@ -336,9 +393,11 @@
   /* ---------- estado derivado da partida ---------- */
   // fonte: a partida que este aparelho marca, ou a partida ao vivo de outro aparelho
   function source() {
-    if (st.playing) return { hist: st.hist, g1: st.g1, g2: st.g2, first: st.first, m1: st.m1, m2: st.m2, pts1: st.pts1, pts2: st.pts2 };
+    if (st.playing) return { hist: st.hist, g1: st.g1, g2: st.g2, first: st.first, m1: st.m1, m2: st.m2, pts1: st.pts1, pts2: st.pts2,
+                             regra: st.mregra || regraDe(st.live) };
     var l = st.live;
-    return { hist: l.pontos || [], g1: l.jogos_a, g2: l.jogos_b, first: l.primeiro, m1: l.jogador_a, m2: l.jogador_b, pts1: l.pts_a, pts2: l.pts_b };
+    return { hist: l.pontos || [], g1: l.jogos_a, g2: l.jogos_b, first: l.primeiro, m1: l.jogador_a, m2: l.jogador_b, pts1: l.pts_a, pts2: l.pts_b,
+             regra: regraDe(l) };
   }
 
   function game(src) {
@@ -346,15 +405,20 @@
     var hist = src.hist;
     var s1 = hist.filter(function (x) { return x === 1; }).length;
     var s2 = hist.length - s1;
-    var wins = function (a, b) { return a >= 11 && a - b >= 2; };
+    var r = src.regra || regraDe(null);
+    // vence o jogo: vitória direta (adversário zerado) ou chegou aos pontos (com vantagem de 2, se a regra pedir)
+    var wins = function (a, b) {
+      return (r.direto > 0 && a >= r.direto && b === 0) || (a >= r.pontos && (!r.vantagem || a - b >= 2));
+    };
     var w = wins(s1, s2) ? 1 : (wins(s2, s1) ? 2 : 0);
     var gp1 = src.g1 + (w === 1 ? 1 : 0);
     var gp2 = src.g2 + (w === 2 ? 1 : 0);
-    var champ = gp1 >= 2 ? 1 : (gp2 >= 2 ? 2 : 0);
+    var champ = gp1 >= r.jogos ? 1 : (gp2 >= r.jogos ? 2 : 0);
     var server = hist.length ? hist[hist.length - 1] : src.first;
     var name1 = nameOf(src.m1), name2 = nameOf(src.m2);
     return { s1: s1, s2: s2, w: w, gp1: gp1, gp2: gp2, champ: champ, server: server, name1: name1, name2: name2,
-             wName: w === 1 ? name1 : name2, pts1: src.pts1, pts2: src.pts2, jogo: src.g1 + src.g2 + 1 };
+             wName: w === 1 ? name1 : name2, pts1: src.pts1, pts2: src.pts2, jogo: src.g1 + src.g2 + 1,
+             regra: r, wins: wins };
   }
 
   function dropLast(p) {
@@ -368,22 +432,30 @@
     if (st.busy || st.picked.length !== 2) return;
     var chave = newKey();
     var a = st.picked[0], b = st.picked[1], first = st.firstPick;
+    var t = st.regraTxt;
+    if (!(parseInt(t.pontos, 10) >= 1)) { set({ regraAberta: true, startErr: 'Diga quantos pontos vencem o jogo.' }); return; }
+    if (st.regra.direto && !(parseInt(t.diretoN, 10) >= 1)) { set({ regraAberta: true, startErr: 'Diga quantos pontos dão a vitória direta.' }); return; }
+    var regra = regraDoEditor();
     set({ busy: true, startErr: '' });
-    rpc('iniciar_partida', { p_jogador_a: a, p_jogador_b: b, p_primeiro: first, p_chave: chave })
+    rpc('iniciar_partida_regras', { p_jogador_a: a, p_jogador_b: b, p_primeiro: first, p_chave: chave,
+                             p_regra_pontos: regra.pontos, p_regra_vantagem: regra.vantagem,
+                             p_regra_direto: regra.direto || null, p_regra_jogos: regra.jogos })
       .then(function (inicio) {
         saveOwner({ chave: chave, iniciada_em: inicio });
         st.busy = false;
         st.playing = true; st.m1 = a; st.m2 = b; st.first = first;
         st.hist = []; st.g1 = 0; st.g2 = 0; st.pts1 = 0; st.pts2 = 0; st.quitArm = false; st.saveErr = ''; st.syncErr = '';
-        st.picked = []; st.firstPick = 1;
+        st.picked = []; st.firstPick = 1; st.mregra = regra; st.regraAberta = false;
         applyLive({ id: 1, ativa: true, jogador_a: a, jogador_b: b, primeiro: first, pontos: [], jogos_a: 0, jogos_b: 0,
-                    pts_a: 0, pts_b: 0, iniciada_em: inicio, atualizada_em: new Date().toISOString() });
+                    pts_a: 0, pts_b: 0, iniciada_em: inicio, atualizada_em: new Date().toISOString(),
+                    regra_pontos: regra.pontos, regra_vantagem: regra.vantagem, regra_direto: regra.direto || null, regra_jogos: regra.jogos });
         render();
         refreshLive();
       })
       .catch(function (err) {
         var msg = err.code === 'partida_em_andamento' ? 'Alguém acabou de iniciar uma partida. Acompanhe ao vivo.'
           : err.code === 'jogador_invalido' ? 'Um dos jogadores saiu da lista. Escolha de novo.'
+          : err.code === 'regra_invalida' ? 'Confira as regras: pontos e jogos precisam ser 1 ou mais.'
           : 'Não deu para iniciar. Confira a internet e tente de novo.';
         set({ busy: false, startErr: msg });
         refreshLive(); refresh();
@@ -419,8 +491,7 @@
   /* ---------- telas ---------- */
   function liveBadge() {
     if (!st.live) return '';
-    var g = game({ hist: st.playing ? st.hist : (st.live.pontos || []), g1: st.playing ? st.g1 : st.live.jogos_a,
-                   g2: st.playing ? st.g2 : st.live.jogos_b, first: st.live.primeiro, m1: st.live.jogador_a, m2: st.live.jogador_b });
+    var g = game();
     return '<button class="live" type="button" data-act="tab" data-v="partida" aria-label="Ver partida ao vivo">' +
       '<span class="dot" aria-hidden="true"></span><span class="lv">AO VIVO</span>' +
       '<span class="vt lv-score">' + esc(g.name1) + ' ' + pad(g.s1) + ' x ' + pad(g.s2) + ' ' + esc(g.name2) + '</span></button>';
@@ -492,10 +563,62 @@
         '<div class="note">Digite o apelido de quem vai jogar. Não precisa de senha.</div></div>' + novoForm(true);
     }
     h += '<div class="grow"></div>';
+    h += regrasBox();
     if (st.startErr) h += '<div class="err" role="alert">' + esc(st.startErr) + '</div>';
     h += '<div class="legend">Ao iniciar, a partida fica ao vivo para todo mundo e só este aparelho marca os pontos.</div>';
     h += '<button class="btn go start" type="button" data-act="start"' + (p.length !== 2 || st.busy ? ' disabled' : '') + '>' + (st.busy ? 'INICIANDO...' : 'INICIAR') + '</button>';
     return h + '</section>';
+  }
+
+  /* ---------- regras da partida, antes de INICIAR ----------
+     Fechado: uma linha com o resumo e o botão MUDAR. Aberto: cada regra com os seus controles. */
+  function stepper(k, label, valueHtml, minus) {
+    return '<div class="stepper">' +
+      '<button class="btn ghost x" type="button" data-act="rgMenos" data-v="' + k + '" aria-label="Menos: ' + label + '"' + (minus ? '' : ' disabled') + '>-</button>' +
+      valueHtml +
+      '<button class="btn ghost x" type="button" data-act="rgMais" data-v="' + k + '" aria-label="Mais: ' + label + '">+</button></div>';
+  }
+  function numField(k, label) {
+    return '<input id="rg-' + k + '" class="field rg-num" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" ' +
+      'aria-label="' + label + '" value="' + esc(st.regraTxt[k]) + '">';
+  }
+  function choice(act, v, on, label) {
+    return '<button class="opt rg-opt' + (on ? ' on' : '') + '" type="button" data-act="' + act + '" data-v="' + v + '" aria-pressed="' + on + '">' + label + '</button>';
+  }
+  function regrasBox() {
+    var r = st.regra, aberta = st.regraAberta;
+    var h = '<div class="box regras' + (aberta ? ' aberta' : '') + '">' +
+      '<div class="regras-top"><span class="lbl">REGRAS DA PARTIDA</span>' +
+      '<button class="btn ghost rg-mudar" type="button" data-act="rgAbrir" aria-expanded="' + aberta + '">' + (aberta ? 'PRONTO' : 'MUDAR') + '</button></div>' +
+      '<div class="regras-resumo">' + esc(regraResumo(regraDoEditor())) + '</div>';
+    if (!aberta) return h + '</div>';
+    h += '<div class="rg-linha"><span class="lbl">PONTOS PARA VENCER O JOGO</span>' +
+      stepper('pontos', 'pontos para vencer', numField('pontos', 'Pontos para vencer o jogo'), r.pontos > 1) + '</div>';
+    h += '<div class="rg-linha"><span class="lbl">NO EMPATE PERTO DO FIM</span><div class="row rg-opts">' +
+      choice('rgVant', '1', r.vantagem, 'VANTAGEM DE 2') + choice('rgVant', '0', !r.vantagem, 'QUEM CHEGAR VENCE') + '</div></div>';
+    h += '<div class="rg-linha"><span class="lbl">VITÓRIA DIRETA</span><div class="row rg-opts">' +
+      choice('rgDireto', '0', !r.direto, 'NÃO') + choice('rgDireto', '1', r.direto, 'SIM') + '</div>';
+    if (r.direto) {
+      h += stepper('diretoN', 'pontos da vitória direta', numField('diretoN', 'Pontos seguidos para a vitória direta'), r.diretoN > 1) +
+        '<div class="legend">Quem fizer ' + esc(st.regraTxt.diretoN || '?') + ' ponto' + (r.diretoN === 1 ? '' : 's') + ' antes de o adversário marcar o primeiro vence na hora. ' +
+        'Se o adversário pontuar, o jogo vai até ' + esc(st.regraTxt.pontos || '?') + '.</div>';
+    }
+    h += '</div>';
+    h += '<div class="rg-linha"><span class="lbl">JOGOS</span>' +
+      stepper('jogos', 'jogos', '<output class="rg-val" aria-live="polite">' + jogosTexto(r.jogos) + '</output>', r.jogos > 1) + '</div>';
+    h += '<div class="legend">Este aparelho lembra as últimas regras usadas.</div>';
+    return h + '</div>';
+  }
+  function mudaRegra(k, delta) {
+    var r = st.regra;
+    if (k === 'jogos') r.jogos = Math.max(1, r.jogos + delta);
+    else {
+      var atual = parseInt(st.regraTxt[k], 10) || r[k];
+      r[k] = Math.max(1, atual + delta);
+      st.regraTxt[k] = String(r[k]);
+    }
+    saveRegra();
+    set({ startErr: '' });
   }
 
   // cadastro rápido: só o apelido
@@ -523,13 +646,15 @@
       '<path fill="' + shine + '" d="' + PADDLE_SHINE + '"/><path fill="#e0a868" d="M6 13h2v6h-2z"/></svg>';
   }
 
-  function playerCard(n, name, score, gp, serving, lock, control) {
-    var pips = [0, 1].map(function (i) { return '<div class="pip' + (i < gp ? ' on' : '') + '"></div>'; }).join('');
+  function playerCard(n, name, score, gp, serving, lock, control, jogos) {
+    // bolinhas de jogos vencidos: só quando a partida tem mais de um jogo
+    var pips = '';
+    for (var i = 0; i < jogos; i++) pips += '<div class="pip' + (i < gp ? ' on' : '') + '"></div>';
     var inner =
       '<div class="tag">' + n + 'P' + (control ? ' · 1 TOQUE +1 · 2 TOQUES −1' : '') + '</div>' +
       '<div class="nm-row"><span class="nm">' + esc(name) + '</span>' + (serving ? serveTag() : '') + '</div>' +
       '<div class="score-row"><div class="rgb glow digits">' + pad(score) + '</div></div>' +
-      '<div class="meta"><div class="games"><span class="vt">JOGOS</span>' + pips + '</div></div>';
+      (jogos > 1 ? '<div class="meta"><div class="games"><span class="vt">JOGOS</span>' + pips + '</div></div>' : '');
     var fx = st.tapFx && st.tapFx.v === n && Date.now() < st.tapFx.until
       ? '<span class="tap-fx' + (st.tapFx.minus ? ' minus' : '') + '" aria-hidden="true">' + st.tapFx.text + '</span>' : '';
     if (!control) return '<div class="box player p' + n + '">' + inner + '</div>';
@@ -539,35 +664,46 @@
 
   function viewBoard() {
     var control = st.playing;
-    var g = game();
+    var g = game(), r = g.regra;
     var hi = Math.max(g.s1, g.s2), lo = Math.min(g.s1, g.s2);
     var title = 'EM JOGO', sub = 'Saque: ' + (g.server === 1 ? g.name1 : g.name2);
+    var lider = g.s1 > g.s2 ? g.name1 : g.name2, atras = g.s1 > g.s2 ? g.name2 : g.name1;
     if (g.s1 !== g.s2) {
       var diff = Math.abs(g.s1 - g.s2);
-      sub = (g.s1 > g.s2 ? g.name1 : g.name2) + ' lidera · ' + diff + ' ponto' + (diff > 1 ? 's' : '') + ' à frente';
+      sub = lider + ' lidera · ' + diff + ' ponto' + (diff > 1 ? 's' : '') + ' à frente';
+      // vitória direta ainda possível: o adversário não marcou nenhum ponto
+      if (r.direto && lo === 0 && r.direto < r.pontos) {
+        var falta = r.direto - hi;
+        sub = lider + ' vence direto com mais ' + falta + ' ponto' + (falta > 1 ? 's' : '') + ' se ' + atras + ' não pontuar';
+      }
     } else if (g.s1 > 0) sub = 'Empate em ' + g.s1 + ' · saque: ' + (g.server === 1 ? g.name1 : g.name2);
-    if (g.w && g.champ) { title = 'FIM DA DISPUTA'; sub = g.wName + ' venceu por ' + g.gp1 + ' a ' + g.gp2; }
+    var gp1 = !g.w && g.wins(g.s1 + 1, g.s2), gp2 = !g.w && g.wins(g.s2 + 1, g.s1);
+    if (g.w && g.champ) {
+      title = 'FIM DA DISPUTA';
+      sub = g.wName + ' venceu ' + (r.jogos === 1 ? hi + ' a ' + lo : 'por ' + Math.max(g.gp1, g.gp2) + ' a ' + Math.min(g.gp1, g.gp2));
+    }
     else if (g.w) { title = 'FIM DE JOGO'; sub = g.wName + ' venceu ' + hi + ' a ' + lo; }
-    else if (g.s1 >= 10 && g.s2 >= 10 && g.s1 === g.s2) { title = 'IGUALDADE'; sub = 'Quem abrir 2 pontos vence'; }
-    else if (g.s1 >= 10 && g.s1 > g.s2) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name1; }
-    else if (g.s2 >= 10 && g.s2 > g.s1) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name2; }
+    else if (gp1 && gp2) { title = 'PONTO DECISIVO'; sub = 'Quem fizer o próximo ponto vence'; }
+    else if (r.vantagem && g.s1 === g.s2 && g.s1 >= r.pontos - 1 && g.s1 > 0) { title = 'IGUALDADE'; sub = 'Quem abrir 2 pontos vence'; }
+    else if (gp1) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name1; }
+    else if (gp2) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name2; }
 
     var stale = !control && st.live && (Date.now() - tsMicros(st.live.atualizada_em) / 1000 > STALE_MS);
     var h = '<section>';
     h += '<div class="live-head"><span class="dot" aria-hidden="true"></span><span class="lv">AO VIVO</span>' +
-      '<span class="vt jogo-n">JOGO ' + Math.min(g.jogo, 3) + ' · MELHOR DE 3</span>' +
+      '<span class="vt jogo-n">' + (r.jogos > 1 ? 'JOGO ' + Math.min(g.jogo, 2 * r.jogos - 1) + ' · ' : '') + esc(regraResumo(r)) + '</span>' +
       '<span class="vt who-marks">' + (control ? '1 toque no placar = ponto · 2 toques rápidos = tira ponto' : 'Só quem iniciou a partida marca os pontos') + '</span></div>';
     h += '<div class="board mesa">';
     h += '<div class="mesa-linha" aria-hidden="true"></div>';
-    h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, !!g.w, control);
+    h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, !!g.w, control, r.jogos);
     h += '<div class="rede" aria-hidden="true"></div>';
-    h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, !!g.w, control);
+    h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, !!g.w, control, r.jogos);
     h += tablePaddle('r1', '#060a1d', '#e8283a', '#ff8f97') + tablePaddle('r2', '#c9d4ff', '#1b1f2e', '#4a5275');
     if (g.w) {
       h += '<div class="banner">' +
         '<div class="kicker">' + (g.champ ? 'CAMPEÃO DA DISPUTA' : 'VENCEDOR DO JOGO') + '</div>' +
         '<div class="rgb glow who">' + esc(g.wName) + '</div>' +
-        '<div class="score">' + (g.champ ? ('JOGOS ' + g.gp1 + ' x ' + g.gp2) : (pad(g.s1) + ' x ' + pad(g.s2))) + '</div>';
+        '<div class="score">' + (g.champ && r.jogos > 1 ? ('JOGOS ' + g.gp1 + ' x ' + g.gp2) : (pad(g.s1) + ' x ' + pad(g.s2))) + '</div>';
       if (control) {
         h += '<div class="row center">' +
             '<button class="btn ghost" type="button" data-act="undo">DESFAZER</button>' +
@@ -647,7 +783,7 @@
           '<div class="ob-chips"><span class="ob-chip on">RAIO <i>1P</i></span><span class="ob-chip on">TROVÃO <i>2P</i></span>' +
           '<span class="ob-chip">FAÍSCA</span><span class="ob-chip">COMETA</span></div>' +
           '<div class="ob-start">INICIAR' + obTap(1) + '</div></div>',
-        text: 'Na aba Partida, toque nos 2 jogadores, toque no lado da mesa de quem saca primeiro e em INICIAR. Seu nome não está na lista? Toque em + NOVO JOGADOR: é só o apelido, sem senha.' },
+        text: 'Na aba Partida, toque nos 2 jogadores, toque no lado da mesa de quem saca primeiro, confira as REGRAS DA PARTIDA e toque em INICIAR. Seu nome não está na lista? Toque em + NOVO JOGADOR: é só o apelido, sem senha.' },
       { title: '1 TOQUE = PONTO',
         art: obBoard(obCard('1P', 'RAIO', '06', obTap(1) + '<span class="ob-fx plus">+1</span>'), obCard('2P', 'TROVÃO', '04')),
         text: 'Durante o jogo, toque uma vez no placar de quem fez o ponto. Aparece um +1 verde.' },
@@ -664,7 +800,7 @@
           '<div class="ob-rkrow won"><span>1º</span><span class="n">RAIO</span><span class="pts"><i>+1</i> 5</span></div>' +
           '<div class="ob-rkrow"><span>2º</span><span class="n">TROVÃO</span><span class="pts">4</span></div>' +
           '<div class="ob-rkrow"><span>3º</span><span class="n">FAÍSCA</span><span class="pts">2</span></div></div>',
-        text: 'A partida é melhor de 3 jogos de 11 pontos. Quando acabar, toque em SALVAR NO RANKING. Cada vitória vale 1 ponto e todo mundo vê na hora.' },
+        text: 'Cada partida tem as regras que vocês escolherem: até quantos pontos, vantagem de 2 no empate, vitória direta e quantos jogos. Quando acabar, toque em SALVAR NO RANKING. Cada vitória vale 1 ponto e todo mundo vê na hora.' },
       { title: 'HISTÓRICO E JOGADORES',
         art: '<div class="ob-hp">' +
           '<div class="ob-pair"><span class="lead">RAIO</span><span class="sc">3 x 1</span><span>TROVÃO</span></div>' +
@@ -801,9 +937,9 @@
     var myMatches = st.matches.filter(function (m) { return m.jogador_a === id || m.jogador_b === id; }).slice(0, 10);
     h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
     myMatches.forEach(function (m) {
-      var meA = m.jogador_a === id;
-      var myG = meA ? m.jogos_a : m.jogos_b, opG = meA ? m.jogos_b : m.jogos_a, opp = meA ? m.jogador_b : m.jogador_a;
-      var won = myG > opG;
+      var meA = m.jogador_a === id, pl = placar(m);
+      var myG = meA ? pl[0] : pl[1], opG = meA ? pl[1] : pl[0], opp = meA ? m.jogador_b : m.jogador_a;
+      var won = meA ? m.jogos_a > m.jogos_b : m.jogos_b > m.jogos_a;
       h += '<div class="match-line"><span class="res ' + (won ? 'w' : 'l') + '">' + (won ? 'VENCEU' : 'PERDEU') + '</span>' +
         '<span class="vt">' + myG + ' x ' + opG + ' contra ' + esc(nameOf(opp)) + '</span>' +
         '<span class="vt when">' + fmtWhen(m.criado_em) + '</span></div>';
@@ -1078,13 +1214,13 @@
     if (!st.loaded) h += '<div class="note dim blink" style="padding: var(--gap)">Carregando ranking...</div>';
     else if (!rows.length) h += '<div class="note dim" style="padding: var(--gap)">Cadastre jogadores para montar o ranking.</div>';
     h += '</div>';
-    h += '<div class="legend">PTS 1 ponto por vitória · J partidas · D derrotas · SJ saldo de jogos (desempate)</div></div>';
+    h += '<div class="legend">PTS 1 ponto por vitória · J partidas · D derrotas · SJ saldo de jogos (desempate) · jogo único mostra os pontos; mais de um jogo, os jogos</div></div>';
     h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
     st.matches.slice(0, 5).forEach(function (m) {
-      var aWon = m.jogos_a > m.jogos_b;
+      var aWon = m.jogos_a > m.jogos_b, pl = placar(m);
       var line = aWon
-        ? nameOf(m.jogador_a) + '  ' + m.jogos_a + ' x ' + m.jogos_b + '  ' + nameOf(m.jogador_b)
-        : nameOf(m.jogador_b) + '  ' + m.jogos_b + ' x ' + m.jogos_a + '  ' + nameOf(m.jogador_a);
+        ? nameOf(m.jogador_a) + '  ' + pl[0] + ' x ' + pl[1] + '  ' + nameOf(m.jogador_b)
+        : nameOf(m.jogador_b) + '  ' + pl[1] + ' x ' + pl[0] + '  ' + nameOf(m.jogador_a);
       h += '<div class="note">' + esc(line) + '</div>';
     });
     if (st.loaded && !st.matches.length) h += '<div class="note dim">Nenhuma partida registrada.</div>';
@@ -1096,6 +1232,7 @@
   var tabbar = document.getElementById('tabbar');
   var overlay = document.getElementById('overlay');
   var content = document.querySelector('.content');
+  var footRegra = document.getElementById('footRegra');
 
   function render() {
     var body, bar = '';
@@ -1114,6 +1251,7 @@
     var scroll = view.scrollTop;
     tabbar.innerHTML = bar;
     view.innerHTML = body;
+    if (footRegra) footRegra.textContent = (st.playing || st.live) ? regraResumo(game().regra) : 'REGRAS ESCOLHIDAS A CADA PARTIDA';
     view.scrollTop = scroll;
     var tut = st.onb !== null;
     var hadTut = !!overlay.firstChild;
@@ -1230,6 +1368,22 @@
       case 'start':
         startMatch();
         break;
+      case 'rgAbrir': {
+        var abrindo = !st.regraAberta;
+        set({ regraAberta: abrindo, regraTxt: abrindo ? st.regraTxt : regraTexto(st.regra) });
+        // mostra as regras inteiras e o botão INICIAR logo abaixo
+        var bx = view.querySelector(abrindo ? '.regras' : '.start');
+        if (bx && bx.scrollIntoView) try { bx.scrollIntoView({ block: abrindo ? 'start' : 'end', behavior: 'smooth' }); } catch (e) { bx.scrollIntoView(); }
+        break;
+      }
+      case 'rgMais': mudaRegra(v, 1); break;
+      case 'rgMenos': mudaRegra(v, -1); break;
+      case 'rgVant':
+        st.regra.vantagem = v === '1'; saveRegra(); set({ startErr: '' });
+        break;
+      case 'rgDireto':
+        st.regra.direto = v === '1'; saveRegra(); set({ startErr: '' });
+        break;
       case 'add':
         if (!control || g.w) return;
         tapScore(Number(v), el);
@@ -1282,6 +1436,14 @@
       st.authPin = digits; clearMsg('authErr', 'authErr');
     }
     else if (el.id === 'novoNome') { st.novoNome = el.value.toUpperCase().slice(0, 10); clearMsg('novoErr', 'novoErr'); }
+    else if (el.id === 'rg-pontos' || el.id === 'rg-diretoN') {
+      // só números; qualquer valor a partir de 1 vale
+      var k = el.id.slice(3), dig = el.value.replace(/\D/g, '').replace(/^0+/, '').slice(0, 6);
+      if (el.value !== dig) el.value = dig;
+      st.regraTxt[k] = dig;
+      if (parseInt(dig, 10) >= 1) { st.regra[k] = parseInt(dig, 10); saveRegra(); }
+      var res = document.querySelector('.regras-resumo'); if (res) res.textContent = regraResumo(regraDoEditor());
+    }
     else if (el.id === 'admFormVal') {
       if (st.admForm === 'ren') st.admFormVal = el.value.toUpperCase().slice(0, 10);
       else { var pin = el.value.replace(/\D/g, '').slice(0, 4); if (el.value !== pin) el.value = pin; st.admFormVal = pin; }
@@ -1293,6 +1455,12 @@
     var m = document.getElementById(id); if (m) m.textContent = '';
   }
   view.addEventListener('change', function (e) {
+    if (e.target.id === 'rg-pontos' || e.target.id === 'rg-diretoN') {
+      // campo apagado volta para o último número válido
+      var k = e.target.id.slice(3);
+      if (!(parseInt(st.regraTxt[k], 10) >= 1)) { st.regraTxt[k] = String(st.regra[k]); }
+      set({ startErr: '' });
+    }
     if (e.target.id === 'histFiltro') set({ histFiltro: e.target.value });
   });
 
@@ -1336,6 +1504,7 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { refreshLive(); refresh(); } });
 
   st.eu = loadEu();
+  st.regra = loadRegra(); st.regraTxt = regraTexto(st.regra);
   maybeTutorial();
   render();
   checkSession();
