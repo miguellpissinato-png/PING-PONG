@@ -415,37 +415,57 @@
     return bar;
   }
 
+  /* ---------- escolha dos jogadores: a mesa de preparação ----------
+     O topo é a mesa da partida, vazia. Quem é escolhido aparece no seu lado da mesa
+     (1P em cima, com a raquete vermelha; 2P embaixo, com a preta). Com os dois escolhidos,
+     tocar num lado da mesa define quem saca primeiro: a bolinha vai para aquele lado. */
+  function prepSide(n, id, next) {
+    var pronto = st.picked.length === 2;
+    var saca = pronto && st.firstPick === n;
+    var tag = '<span class="prep-tag p' + n + '">' + n + 'P</span>';
+    var ball = saca ? '<svg class="bola-saque bounce" viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true">' +
+      '<path fill="#f4f7ff" d="M1 0h4v1h-4zM0 1h6v4h-6zM1 5h4v1h-4z"/><path fill="#b9c6f2" d="M4 4h1v1h-1zM1 4h1v1h-1z"/></svg>' : '';
+    if (!id) {
+      return '<div class="prep-lado vazio' + (next ? ' proximo' : '') + '"><div class="vaga">' + tag +
+        '<span class="' + (next ? 'blink ' : '') + 'prep-msg">' + (next ? 'TOQUE NUM NOME' : '---') + '</span></div></div>';
+    }
+    var inner = tag + '<span class="prep-nm">' + esc(nameOf(id)) + '</span>' +
+      (saca ? serveTag('SACA PRIMEIRO') : (pronto ? '<span class="prep-msg">toque para sacar</span>' : '')) + ball;
+    if (!pronto) return '<div class="prep-lado">' + inner + '</div>';
+    return '<button class="prep-lado tap" type="button" data-act="fp" data-v="' + n + '" aria-pressed="' + saca + '"' +
+      ' aria-label="' + esc(nameOf(id)) + (saca ? ' saca primeiro' : ': toque para sacar primeiro') + '">' + inner + '</button>';
+  }
+
   function viewSetup() {
     var p = st.picked;
-    var slot1 = p[0] ? nameOf(p[0]) : '---';
-    var slot2 = p[1] ? nameOf(p[1]) : '---';
     var h = '<section>';
-    h += '<div class="slots">' +
-      '<div class="box slot"><div class="lbl">1P</div><div class="glow nm">' + esc(slot1) + '</div></div>' +
-      '<div class="vs">VS</div>' +
-      '<div class="box slot"><div class="lbl">2P</div><div class="glow nm">' + esc(slot2) + '</div></div>' +
+    h += '<div class="board mesa prep">' +
+      '<div class="mesa-linha" aria-hidden="true"></div>' +
+      prepSide(1, p[0], p.length === 0) +
+      '<div class="rede" aria-hidden="true"></div>' +
+      prepSide(2, p[1], p.length === 1) +
+      tablePaddle('r1' + (p[0] ? '' : ' apagada'), '#060a1d', '#e8283a', '#ff8f97') +
+      tablePaddle('r2' + (p[1] ? '' : ' apagada'), '#c9d4ff', '#1b1f2e', '#4a5275') +
       '</div>';
     if (!st.loaded) {
       h += '<div class="note dim blink">Carregando jogadores...</div>';
     } else if (st.players.length) {
-      h += '<div class="note">Toque em 2 jogadores. O primeiro vira o 1P.</div>';
+      h += '<div class="note prep-dica">' + (p.length === 2 ? 'Toque no lado da mesa de quem vai sacar primeiro.' : 'Toque em 2 jogadores. O primeiro vira o 1P.') + '</div>';
       h += '<div class="scroll roster">';
       st.players.forEach(function (pl) {
         var at = p.indexOf(pl.id);
         var badge = at === 0 ? '1P' : (at === 1 ? '2P' : '');
+        var paddle = at === 0 ? ['#060a1d', '#e8283a'] : at === 1 ? ['#060a1d', '#1b1f2e'] : ['#2b47b8', '#0b1640'];
         h += '<button class="opt chip' + (at >= 0 ? ' on' : '') + '" type="button" data-act="pick" data-v="' + pl.id + '">' +
+          '<svg class="chip-rq" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true">' +
+            '<path fill="' + paddle[0] + '" d="' + PADDLE_SHAPE + '"/><path fill="' + paddle[1] + '" d="' + PADDLE_FACE + '"/>' +
+            '<path fill="#e0a868" d="M6 13h2v6h-2z"/></svg>' +
           '<span class="nm">' + esc(pl.name) + '</span><span class="badge">' + badge + '</span></button>';
       });
       h += '</div>';
     } else {
       h += '<div class="box empty-box"><div class="msg">NENHUM JOGADOR AINDA</div>' +
         '<div class="note">Cada jogador entra no site e cria o próprio perfil. Quem tem perfil aparece aqui.</div></div>';
-    }
-    if (p.length === 2) {
-      h += '<div class="stack"><div class="lbl">QUEM SACA NO 1º PONTO</div><div class="row">' +
-        '<button class="opt' + (st.firstPick === 1 ? ' on' : '') + '" type="button" data-act="fp" data-v="1">' + esc(slot1) + '</button>' +
-        '<button class="opt' + (st.firstPick === 2 ? ' on' : '') + '" type="button" data-act="fp" data-v="2">' + esc(slot2) + '</button>' +
-        '</div></div>';
     }
     h += '<div class="grow"></div>';
     if (st.startErr) h += '<div class="err" role="alert">' + esc(st.startErr) + '</div>';
@@ -454,8 +474,8 @@
     return h + '</section>';
   }
 
-  function serveTag() {
-    return '<span class="blink serve-chip"><svg viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true"><path fill="#050a1c" d="M1 0h4v1h-4zM0 1h6v4h-6zM1 5h4v1h-4z"/></svg>SAQUE</span>';
+  function serveTag(label) {
+    return '<span class="blink serve-chip"><svg viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true"><path fill="#050a1c" d="M1 0h4v1h-4zM0 1h6v4h-6zM1 5h4v1h-4z"/></svg>' + (label || 'SAQUE') + '</span>';
   }
 
   /* raquetes de enfeite em volta da mesa: vermelha do lado do 1P, preta do lado do 2P */
