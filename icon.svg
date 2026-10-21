@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="512" height="512" shape-rendering="crispEdges">
+<title>Disputa Elsys</title>
+<rect width="64" height="64" fill="#0b1640"/>
+<rect x="11" y="53" width="42" height="3" fill="#0c2a6e"/>
+<rect x="13" y="56" width="2" height="3" fill="#060a1d"/>
+<rect x="49" y="56" width="2" height="3" fill="#060a1d"/>
+<rect x="11" y="9" width="42" height="44" fill="#f4f7ff"/>
+<rect x="12" y="10" width="40" height="42" fill="#1a4fb8"/>
+<rect x="31.5" y="10" width="1" height="42" fill="#7d9de6"/>
+<rect x="12" y="10" width="40" height="1" fill="#2a63d0"/>
+<rect x="7" y="29" width="50" height="4" fill="#6f80bd"/>
+<path fill="#dbe3ff" d="M8 30h1v3h-1zM10 30h1v3h-1zM12 30h1v3h-1zM14 30h1v3h-1zM16 30h1v3h-1zM18 30h1v3h-1zM20 30h1v3h-1zM22 30h1v3h-1zM24 30h1v3h-1zM26 30h1v3h-1zM28 30h1v3h-1zM30 30h1v3h-1zM32 30h1v3h-1zM34 30h1v3h-1zM36 30h1v3h-1zM38 30h1v3h-1zM40 30h1v3h-1zM42 30h1v3h-1zM44 30h1v3h-1zM46 30h1v3h-1zM48 30h1v3h-1zM50 30h1v3h-1zM52 30h1v3h-1zM54 30h1v3h-1zM56 30h1v3h-1z"/>
+<rect x="7" y="29" width="50" height="1" fill="#f4f7ff"/>
+<rect x="7" y="33" width="50" height="1" fill="#0c2a6e"/>
+<rect x="5" y="27" width="2" height="8" fill="#c9d4ff"/>
+<rect x="6" y="27" width="1" height="8" fill="#6f80bd"/>
+<rect x="57" y="27" width="2" height="8" fill="#c9d4ff"/>
+<rect x="58" y="27" width="1" height="8" fill="#6f80bd"/>
+<rect x="21" y="21" width="4" height="1" fill="#123d93"/>
+<path fill="#f4f7ff" d="M21 15h2v1h-2zM20 16h4v2h-4zM21 18h2v1h-2z"/>
+<path fill="#b9c6f2" d="M22 18h1v1h-1zM23 17h1v1h-1z"/>
+<rect x="17" y="13" width="1" height="1" fill="#8fb0ff"/>
+<rect x="15" y="11" width="1" height="1" fill="#5d86de"/>
+<g transform="translate(47 47) rotate(-34) scale(1.3) translate(-7 -10)">
+<path fill="#060a1d" d="M4 0h6v1h-6zM2 1h10v1h-10zM1 2h12v2h-12zM0 4h14v6h-14zM1 10h12v2h-12zM2 12h10v1h-10zM5 13h4v7h-4z"/>
+<path fill="#e8283a" d="M4 1h6v1h-6zM2 2h10v2h-10zM1 4h12v6h-12zM2 10h10v1h-10zM4 11h6v1h-6z"/>
+<path fill="#a3121f" d="M11 7h1v3h-1zM10 10h2v1h-2zM8 11h2v1h-2z"/>
+<path fill="#ff8f97" d="M4 2h2v1h-2zM3 3h2v1h-2zM2 4h1v2h-1z"/>
+<path fill="#e0a868" d="M6 13h2v6h-2z"/><path fill="#a8703a" d="M7 13h1v6h-1z"/>
+</g>
+<path fill="#00000c" fill-opacity=".14" d="M0 0.5h64v.5h-64zM0 1.5h64v.5h-64zM0 2.5h64v.5h-64zM0 3.5h64v.5h-64zM0 4.5h64v.5h-64zM0 5.5h64v.5h-64zM0 6.5h64v.5h-64zM0 7.5h64v.5h-64zM0 8.5h64v.5h-64zM0 9.5h64v.5h-64zM0 10.5h64v.5h-64zM0 11.5h64v.5h-64zM0 12.5h64v.5h-64zM0 13.5h64v.5h-64zM0 14.5h64v.5h-64zM0 15.5h64v.5h-64zM0 16.5h64v.5h-64zM0 17.5h64v.5h-64zM0 18.5h64v.5h-64zM0 19.5h64v.5h-64zM0 20.5h64v.5h-64zM0 21.5h64v.5h-64zM0 22.5h64v.5h-64zM0 23.5h64v.5h-64zM0 24.5h64v.5h-64zM0 25.5h64v.5h-64zM0 26.5h64v.5h-64zM0 27.5h64v.5h-64zM0 28.5h64v.5h-64zM0 29.5h64v.5h-64zM0 30.5h64v.5h-64zM0 31.5h64v.5h-64zM0 32.5h64v.5h-64zM0 33.5h64v.5h-64zM0 34.5h64v.5h-64zM0 35.5h64v.5h-64zM0 36.5h64v.5h-64zM0 37.5h64v.5h-64zM0 38.5h64v.5h-64zM0 39.5h64v.5h-64zM0 40.5h64v.5h-64zM0 41.5h64v.5h-64zM0 42.5h64v.5h-64zM0 43.5h64v.5h-64zM0 44.5h64v.5h-64zM0 45.5h64v.5h-64zM0 46.5h64v.5h-64zM0 47.5h64v.5h-64zM0 48.5h64v.5h-64zM0 49.5h64v.5h-64zM0 50.5h64v.5h-64zM0 51.5h64v.5h-64zM0 52.5h64v.5h-64zM0 53.5h64v.5h-64zM0 54.5h64v.5h-64zM0 55.5h64v.5h-64zM0 56.5h64v.5h-64zM0 57.5h64v.5h-64zM0 58.5h64v.5h-64zM0 59.5h64v.5h-64zM0 60.5h64v.5h-64zM0 61.5h64v.5h-64zM0 62.5h64v.5h-64zM0 63.5h64v.5h-64z"/>
+</svg>
