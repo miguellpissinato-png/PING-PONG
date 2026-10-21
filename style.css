@@ -540,3 +540,18 @@ nav.tabs { display: flex; flex: none; }
 .prep-dica { text-align: center; }
 .chip .nm { flex: 1; min-width: 0; }
 .chip-rq { width: calc(var(--fs-sm) * 1.2); height: calc(var(--fs-sm) * 1.7); flex: none; transform: rotate(-20deg); }
+
+/* ---------- sem login: novo jogador, aba Jogadores e área admin ---------- */
+.novo-chip { justify-content: center; color: var(--ink); box-shadow: inset 0 0 0 var(--border) var(--ink-dim); border: var(--border) dashed transparent; }
+.novo-chip:hover { box-shadow: inset 0 0 0 var(--border) var(--ink); }
+.novo-form { display: flex; flex-direction: column; gap: var(--gap-s); padding: var(--gap-s) var(--gap); margin: 0; flex: none; }
+.novo-form .row .field { flex: 1; min-width: 0; }
+.eu-card { display: flex; flex-direction: column; align-items: center; gap: .6em; width: 100%; padding: var(--gap-s) var(--gap); border: 0; cursor: pointer; color: var(--ink); font-family: inherit; flex: none; }
+.eu-card:hover { box-shadow: inset 0 0 0 var(--border) var(--ink); }
+.eu-card:focus-visible { outline: var(--border) solid var(--ink); outline-offset: var(--border); }
+.eu-nm { font-size: var(--fs-md); letter-spacing: .08em; }
+.jog-list { max-height: none; }
+.jog-list .pos { flex: none; min-width: 2.4em; font-size: var(--fs-xs); color: var(--ink-mute); }
+.jog-list .chip.on .pos, .jog-list .chip:hover .pos { color: inherit; }
+.chip.eu { box-shadow: inset 0 0 0 var(--border) var(--ink); color: var(--ink); }
+.eu-tag { font-size: var(--fs-xs); letter-spacing: .1em; color: var(--ground); background: var(--amarelo); padding: .55em .7em; align-self: center; }

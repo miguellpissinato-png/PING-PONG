@@ -4,15 +4,16 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
 
 ## O que ele faz
 
-- **Perfil:** ao abrir o site, cada pessoa cria o perfil com o apelido que usa na mesa e um PIN de 4 números, ou entra com o perfil que já tem. Na aba **Perfil** ela vê o próprio apelido (e pode mudar), quantas partidas jogou, venceu e perdeu, a posição no ranking, os confrontos contra cada adversário e as últimas partidas.
-- **Partida:** qualquer pessoa logada escolhe os dois jogadores, define quem saca no 1º ponto e toca em **INICIAR**. Um toque no placar do jogador marca ponto para ele; dois toques rápidos no mesmo placar tiram 1 ponto dele. DESFAZER PONTO também desfaz o último ponto. Mostra jogos ganhos (melhor de 3) e status (igualdade, ponto de jogo, vencedor).
+- **Sem login para jogar:** o site abre direto na aba Partida. Ninguém precisa de senha: quem não está na lista toca em **+ NOVO JOGADOR** e digita o apelido.
+- **Jogadores:** a aba lista todo mundo. Tocar num nome mostra quantas partidas a pessoa jogou, venceu e perdeu, a posição no ranking, os confrontos contra cada adversário e as últimas partidas. **ESTE SOU EU** marca o seu nome neste aparelho (sem senha) e destaca você no ranking.
+- **Partida:** qualquer pessoa escolhe os dois jogadores, define quem saca no 1º ponto e toca em **INICIAR**. Um toque no placar do jogador marca ponto para ele; dois toques rápidos no mesmo placar tiram 1 ponto dele. DESFAZER PONTO também desfaz o último ponto. Mostra jogos ganhos (melhor de 3) e status (igualdade, ponto de jogo, vencedor).
 - **Mesa de preparação:** antes de iniciar, o topo da aba Partida é a mesa vazia. Quem é escolhido aparece no seu lado (1P em cima com a raquete vermelha, 2P embaixo com a preta) e o lado que falta fica tracejado com TOQUE NUM NOME. Com os dois escolhidos, tocar num lado da mesa define quem saca primeiro, e a bolinha vai para lá.
 - **Mesa de jogo:** durante a partida, o placar é uma mesa de ping-pong vista de cima, com rede no meio, raquetes vermelha (1P) e preta (2P) e o selo amarelo SAQUE em quem saca. Em pé, o 1P fica em cima e o 2P embaixo, de frente para ele; deitado, a mesa gira e os dois ficam lado a lado. Cada metade da mesa é a área de toque do jogador.
 - **Regras:** o jogo vai até 11 pontos com vantagem de 2, e o saque é de quem fez o último ponto.
 - **Ranking:** cada vitória vale 1 ponto (PTS). Empates são decididos pelo saldo de jogos e depois pelos pontos feitos. Quando uma partida é salva, todo mundo que estava acompanhando vai direto para o ranking e o vencedor aparece com um +1 piscando por 15 segundos.
 - **Histórico:** todos os confrontos entre duplas, no formato `JÚLIO 3 x 1 FÁBIO` (quantas partidas cada um venceu contra o outro), com o total de pontos de cada um no ranking geral. Dá para filtrar por jogador.
 
-- **Tutorial:** na primeira vez que cada perfil entra num aparelho, abre um passo a passo ilustrado com as abas, como iniciar partida, 1 toque e 2 toques, partida ao vivo, ranking, histórico e perfil. Dá para pular e rever depois em **COMO FUNCIONA**, na aba Perfil.
+- **Tutorial:** na primeira vez que o site abre num aparelho, aparece um passo a passo ilustrado com as abas, como iniciar partida, 1 toque e 2 toques, partida ao vivo, ranking, histórico e jogadores. Dá para pular e rever depois em **COMO FUNCIONA**, na aba Jogadores.
 
 ## Como usar
 
@@ -44,16 +45,17 @@ Só existe uma partida em andamento por vez.
 
 ## Painel admin
 
-O perfil **BUMBLEBEE** é o dono do placar. Na aba **Perfil**, dono e admins veem o botão **PAINEL ADMIN**.
+O jogador **BUMBLEBEE** é o dono do placar. O PIN só existe para os admins: na aba **Jogadores**, o botão **ÁREA ADMIN** pede apelido e PIN e abre o painel.
 
 | Ação | Dono | Admin |
 | --- | --- | --- |
 | Apagar as partidas de um jogador ou todo o histórico | sim | sim |
-| Excluir perfil (sai da lista e do ranking; as partidas ficam no histórico) | sim | sim, menos dono e admins |
-| Resetar PIN (desbloqueia e desconecta; a pessoa cria um PIN novo em "Criar perfil") | sim | sim, menos dono e admins |
+| Mudar o apelido de um jogador | sim | sim, menos dono e outros admins (o próprio pode) |
+| Excluir jogador (sai da lista e do ranking; as partidas ficam no histórico) | sim | sim, menos dono e admins |
+| Definir o PIN de um admin (ao torná-lo admin, ou para trocar) | sim | não |
 | Tornar admin e tirar admin | sim | não |
 
-Ninguém mexe no perfil do dono. Ações que apagam pedem confirmação (o botão vira **CONFIRMAR?**). O banco confere o login e o papel em cada ação, então esconder ou mostrar botões no site não muda o que cada um pode fazer.
+Ninguém mexe no jogador do dono. Ações que apagam pedem confirmação (o botão vira **CONFIRMAR?**). O banco confere o login de admin e o papel em cada ação, então esconder ou mostrar botões no site não muda o que cada um pode fazer.
 
 O SQL do painel está em `supabase/painel_admin.sql`.
 
@@ -63,9 +65,9 @@ Jogadores, partidas e a partida ao vivo ficam num banco [Supabase](https://supab
 
 - **Cadastrar jogador** e **registrar partida** ficam salvos para todos.
 - A **partida ao vivo** fica na tabela `partida_ao_vivo`. Só o aparelho que iniciou consegue mudar o placar, pelas funções do banco (`iniciar_partida`, `atualizar_partida`, `encerrar_partida`, `liberar_partida_parada`).
-- Pelo site, só admins apagam partidas, excluem perfis ou resetam PIN (veja **Painel admin**). Ninguém edita nomes de outras pessoas nem registra partidas fora da partida ao vivo.
+- Pelo site, só admins apagam partidas, mudam apelidos ou excluem jogadores (veja **Painel admin**). Qualquer pessoa cadastra jogador e inicia partida; ninguém registra partidas fora da partida ao vivo.
 
-Cada pessoa entra com apelido e PIN. O PIN é guardado só como hash (bcrypt) numa tabela que o site não consegue ler, e 5 PINs errados seguidos bloqueiam o perfil por 5 minutos. É um PIN de 4 números, então serve para separar os perfis, não para proteger nada importante. Apelidos que já existiam antes dos perfis podem ser assumidos por quem criar o perfil com o mesmo apelido primeiro.
+Só admins têm PIN. Ele é guardado só como hash (bcrypt) numa tabela que o site não consegue ler, e 5 PINs errados seguidos bloqueiam o acesso por 5 minutos. Quem não é admin não entra na área admin, mesmo com um PIN antigo.
 
 ### Tabelas
 
@@ -75,13 +77,13 @@ Cada pessoa entra com apelido e PIN. O PIN é guardado só como hash (bcrypt) nu
 | `partidas` | `jogador_a`, `jogador_b`, `jogos_a`, `jogos_b` (quem fez 2 venceu), `pontos_a`, `pontos_b`, `criado_em` |
 | `partida_ao_vivo` | Linha única com a partida em andamento: jogadores, `pontos` (quem fez cada ponto do jogo atual), jogos e pontos já fechados, `ativa` |
 | `partida_ao_vivo_dono` | Chave secreta do aparelho que iniciou. Ninguém lê pelo site |
-| `jogadores_acesso` | Hash do PIN de cada perfil e tentativas erradas. Ninguém lê pelo site |
+| `jogadores_acesso` | Hash do PIN de cada admin e tentativas erradas. Ninguém lê pelo site |
 | `sessoes` | Logins abertos (hash do token guardado no aparelho). Ninguém lê pelo site |
 | `admins` | Quem é admin e quem é o dono (BUMBLEBEE). Ninguém lê pelo site |
 
-Funções de perfil: `criar_perfil`, `entrar`, `meu_perfil` (devolve também o papel: dono, admin ou nenhum), `renomear_perfil`, `sair` e `iniciar_partida_logado` (iniciar partida exige estar logado).
+Funções sem login: `criar_jogador` (só o apelido), `iniciar_partida` e as da partida ao vivo. Login de admin: `entrar`, `meu_perfil` (devolve o papel: dono, admin ou nenhum) e `sair`.
 
-Funções do painel admin: `admin_painel`, `admin_limpar_historico`, `admin_excluir_perfil`, `admin_resetar_acesso` e `admin_definir_admin` (só o dono).
+Funções do painel admin: `admin_painel`, `admin_limpar_historico`, `admin_renomear`, `admin_excluir_perfil`, `admin_definir_admin` e `admin_definir_pin` (as duas últimas só do dono). O SQL fica em `supabase/`.
 
 O endereço do banco e a chave pública ficam no topo do `app.js`. A chave pública pode ficar no código: ela só permite o que as regras do banco liberam.
 

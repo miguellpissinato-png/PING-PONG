@@ -17,7 +17,8 @@
   var STALE_MS = 20 * 60 * 1000;                // partida sem ponto há 20 min pode ser liberada
   var HEARTBEAT_MS = 4 * 60 * 1000;             // quem marca avisa o banco que a partida segue viva
   var DOUBLE_TAP_MS = 320;                      // dois toques no mesmo placar dentro deste tempo tiram 1 ponto
-  var TUTORIAL_KEY = 'disputa-elsys-tutorial-v1'; // perfis que já viram o tutorial neste aparelho
+  var TUTORIAL_KEY = 'disputa-elsys-tutorial-v2'; // este aparelho já viu o tutorial
+  var EU_KEY = 'disputa-elsys-eu';              // jogador que a pessoa marcou como "este sou eu" neste aparelho
 
   var st = {
     tab: 'partida',
@@ -25,9 +26,11 @@
     seenMatches: null,   // ids de partidas já conhecidas (null até a primeira carga)
     winFlash: null,      // { match, winner, loser, until } — destaque do vencedor recém-salvo
     loaded: false, netErr: false, busy: false,
-    // perfil
-    me: null, authChecked: false, authMode: 'criar', authNome: '', authPin: '', authErr: '', authBusy: false,
-    renaming: false, renameDraft: '', renameErr: '', histFiltro: '',
+    // ninguém precisa entrar para jogar. "me" é só o login de admin (apelido + PIN), usado no painel.
+    me: null, authNome: '', authPin: '', authErr: '', authBusy: false,
+    eu: null,            // jogador marcado como "este sou eu" neste aparelho (sem senha)
+    jog: null,           // jogador aberto na aba Jogadores
+    novo: false, novoNome: '', novoErr: '', histFiltro: '',
     picked: [], firstPick: 1, startErr: '',
     live: null,          // partida ao vivo vinda do banco (ou null)
     rt: false,           // tempo real conectado
@@ -38,7 +41,8 @@
     onb: null,           // passo do tutorial aberto (ou null)
     // painel admin (só para quem tem papel 'dono' ou 'admin')
     adm: null,           // { papel, partidas, jogadores: [...] } vindo do banco
-    admBusy: false, admErr: '', admMsg: '', admSel: null, admArm: ''
+    admBusy: false, admErr: '', admMsg: '', admSel: null, admArm: '',
+    admForm: '', admFormVal: ''   // formulário aberto no painel: 'ren' (apelido), 'pin' ou 'pinAdmin' (PIN para virar admin)
   };
 
   function set(patch) {
@@ -92,20 +96,30 @@
     try { if (t) localStorage.setItem(SESSION_KEY, t); else localStorage.removeItem(SESSION_KEY); } catch (e) {}
   }
 
-  /* Confere se o login guardado neste aparelho ainda vale. */
+  /* "Este sou eu": guardado só neste aparelho, sem senha. Serve para destacar a pessoa no ranking. */
+  function loadEu() {
+    try { var v = Number(localStorage.getItem(EU_KEY)); return v || null; } catch (e) { return null; }
+  }
+  function saveEu(id) {
+    try { if (id) localStorage.setItem(EU_KEY, String(id)); else localStorage.removeItem(EU_KEY); } catch (e) {}
+    set({ eu: id || null });
+  }
+
+  /* Login de admin guardado neste aparelho. Só vale para quem é dono ou admin. */
   function checkSession() {
     var t = loadToken();
-    if (!t) { set({ me: null, authChecked: true }); return Promise.resolve(); }
+    if (!t) { st.me = null; render(); return Promise.resolve(); }
     return rpc('meu_perfil', { p_token: t }).then(function (r) {
-      if (r && r.ok) {
-        st.me = { id: r.id, nome: r.nome, papel: r.papel || null }; st.authChecked = true;
-        if (st.tab === 'admin' && !st.me.papel) st.tab = 'perfil';
-        maybeTutorial(); render();
+      if (r && r.ok && r.papel) {
+        st.me = { id: r.id, nome: r.nome, papel: r.papel };
+        render();
+        return;
       }
-      else { saveToken(null); set({ me: null, authChecked: true }); }
+      // login antigo de quem não é admin (de quando todo mundo entrava com PIN): sai
+      saveToken(null);
+      if (r && r.ok) rpc('sair', { p_token: t }).catch(function () {});
+      set({ me: null, adm: null });
     }).catch(function () {
-      // sem internet: mantém a pessoa na tela e tenta de novo depois
-      set({ authChecked: true, netErr: true });
       setTimeout(checkSession, 4000);
     });
   }
@@ -113,13 +127,15 @@
   var AUTH_MSG = {
     apelido_invalido: 'Digite um apelido de 1 a 10 letras.',
     pin_invalido: 'O PIN precisa ter 4 números.',
-    apelido_em_uso: 'Esse apelido já tem perfil. Se é você, toque em "Já tenho perfil".',
-    apelido_nao_encontrado: 'Não achamos esse apelido. Confira ou crie um perfil.',
-    sem_pin: 'Esse apelido ainda não tem PIN. Toque em "Criar perfil" para criar o seu.',
+    apelido_em_uso: 'Esse apelido já está na lista.',
+    apelido_nao_encontrado: 'Não achamos esse apelido.',
+    sem_pin: 'Esse jogador não tem PIN de admin.',
+    nao_admin: 'Esse jogador não é admin do placar.',
     pin_incorreto: 'PIN errado.',
     bloqueado: 'Muitas tentativas erradas. Espere alguns minutos e tente de novo.'
   };
 
+  /* Área admin: apelido + PIN. Quem não é admin não entra. */
   function doAuth() {
     if (st.authBusy) return;
     var nome = (st.authNome || '').trim().toUpperCase().slice(0, 10);
@@ -127,20 +143,25 @@
     if (!nome) { set({ authErr: AUTH_MSG.apelido_invalido }); return; }
     if (!/^[0-9]{4}$/.test(pin)) { set({ authErr: AUTH_MSG.pin_invalido }); return; }
     set({ authBusy: true, authErr: '' });
-    rpc(st.authMode === 'criar' ? 'criar_perfil' : 'entrar', { p_nome: nome, p_pin: pin }).then(function (r) {
-      if (r && r.ok) {
-        saveToken(r.token);
-        st.me = { id: r.id, nome: r.nome };
-        maybeTutorial();
-        set({ authBusy: false, authPin: '', authNome: '', authErr: '', tab: 'partida' });
-        refresh();
-        checkSession(); // traz o papel (dono/admin) do perfil
+    rpc('entrar', { p_nome: nome, p_pin: pin }).then(function (r) {
+      if (!(r && r.ok)) {
+        var msg = AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.';
+        if (r && r.erro === 'pin_incorreto' && r.restantes) msg += ' Restam ' + r.restantes + ' tentativa' + (r.restantes > 1 ? 's' : '') + '.';
+        if (r && r.erro === 'bloqueado' && r.segundos) msg = 'Muitas tentativas erradas. Tente de novo em ' + Math.ceil(r.segundos / 60) + ' min.';
+        set({ authBusy: false, authErr: msg, authPin: '' });
         return;
       }
-      var msg = AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.';
-      if (r && r.erro === 'pin_incorreto' && r.restantes) msg += ' Restam ' + r.restantes + ' tentativa' + (r.restantes > 1 ? 's' : '') + '.';
-      if (r && r.erro === 'bloqueado' && r.segundos) msg = 'Muitas tentativas erradas. Tente de novo em ' + Math.ceil(r.segundos / 60) + ' min.';
-      set({ authBusy: false, authErr: msg, authPin: '' });
+      return rpc('meu_perfil', { p_token: r.token }).then(function (p) {
+        if (!(p && p.ok && p.papel)) {
+          rpc('sair', { p_token: r.token }).catch(function () {});
+          set({ authBusy: false, authErr: AUTH_MSG.nao_admin, authPin: '' });
+          return;
+        }
+        saveToken(r.token);
+        st.me = { id: p.id, nome: p.nome, papel: p.papel };
+        set({ authBusy: false, authPin: '', authNome: '', authErr: '', tab: 'admin', admErr: '', admMsg: '', admSel: null });
+        loadAdmin();
+      });
     }).catch(function () {
       set({ authBusy: false, authErr: 'Sem conexão. Confira a internet e tente de novo.' });
     });
@@ -150,22 +171,24 @@
     var t = loadToken();
     saveToken(null);
     if (t) rpc('sair', { p_token: t }).catch(function () {});
-    set({ me: null, tab: 'partida', authMode: 'entrar', renaming: false, picked: [], onb: null,
-          adm: null, admErr: '', admMsg: '', admSel: null, admArm: '' });
+    set({ me: null, tab: 'jogadores', jog: null, adm: null, admErr: '', admMsg: '', admSel: null, admArm: '', admForm: '' });
   }
 
-  function doRename() {
-    var nome = (st.renameDraft || '').trim().toUpperCase().slice(0, 10);
-    if (!nome) { set({ renameErr: AUTH_MSG.apelido_invalido }); return; }
-    if (st.me && nome === st.me.nome) { set({ renaming: false, renameErr: '' }); return; }
-    set({ busy: true, renameErr: '' });
-    rpc('renomear_perfil', { p_token: loadToken(), p_nome: nome }).then(function (r) {
+  /* Novo jogador: só o apelido, sem PIN. Entra direto numa vaga livre da mesa. */
+  function addPlayer() {
+    if (st.busy) return;
+    var nome = (st.novoNome || '').trim().toUpperCase().slice(0, 10);
+    if (!nome) { set({ novoErr: AUTH_MSG.apelido_invalido }); return; }
+    set({ busy: true, novoErr: '' });
+    rpc('criar_jogador', { p_nome: nome }).then(function (r) {
       st.busy = false;
-      if (r && r.ok) { set({ me: { id: r.id, nome: r.nome, papel: st.me && st.me.papel }, renaming: false }); refresh(); return; }
-      if (r && r.erro === 'sem_sessao') { logout(); return; }
-      set({ renameErr: r && r.erro === 'apelido_em_uso' ? 'Esse apelido já é de outra pessoa.' : (AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.') });
+      if (!(r && r.ok)) { set({ novoErr: AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.' }); return; }
+      set({ novo: false, novoNome: '', novoErr: '' });
+      refresh().then(function () {
+        if (!st.live && !st.playing && st.picked.length < 2 && st.picked.indexOf(r.id) < 0) set({ picked: st.picked.concat([r.id]) });
+      });
     }).catch(function () {
-      set({ busy: false, renameErr: 'Sem conexão. Confira a internet e tente de novo.' });
+      set({ busy: false, novoErr: 'Sem conexão. Confira a internet e tente de novo.' });
     });
   }
 
@@ -346,7 +369,7 @@
     var chave = newKey();
     var a = st.picked[0], b = st.picked[1], first = st.firstPick;
     set({ busy: true, startErr: '' });
-    rpc('iniciar_partida_logado', { p_token: loadToken(), p_jogador_a: a, p_jogador_b: b, p_primeiro: first, p_chave: chave })
+    rpc('iniciar_partida', { p_jogador_a: a, p_jogador_b: b, p_primeiro: first, p_chave: chave })
       .then(function (inicio) {
         saveOwner({ chave: chave, iniciada_em: inicio });
         st.busy = false;
@@ -359,7 +382,6 @@
         refreshLive();
       })
       .catch(function (err) {
-        if (err.code === 'sem_sessao') { st.busy = false; logout(); return; }
         var msg = err.code === 'partida_em_andamento' ? 'Alguém acabou de iniciar uma partida. Acompanhe ao vivo.'
           : err.code === 'jogador_invalido' ? 'Um dos jogadores saiu da lista. Escolha de novo.'
           : 'Não deu para iniciar. Confira a internet e tente de novo.';
@@ -406,10 +428,10 @@
 
   function tabs() {
     function t(id, label) {
-      var on = st.tab === id || (id === 'perfil' && st.tab === 'admin');
+      var on = st.tab === id || (id === 'jogadores' && st.tab === 'admin');
       return '<button class="tab' + (on ? ' on' : '') + '" type="button" data-act="tab" data-v="' + id + '">' + label + '</button>';
     }
-    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('perfil', 'PERFIL') + '</nav>';
+    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('jogadores', 'JOGADORES') + '</nav>';
     if (st.tab !== 'partida') bar += liveBadge();
     if (st.netErr) bar += '<div class="net" role="status">SEM CONEXÃO COM O PLACAR ONLINE · TENTANDO DE NOVO</div>';
     return bar;
@@ -462,16 +484,29 @@
             '<path fill="#e0a868" d="M6 13h2v6h-2z"/></svg>' +
           '<span class="nm">' + esc(pl.name) + '</span><span class="badge">' + badge + '</span></button>';
       });
+      if (!st.novo) h += '<button class="opt chip novo-chip" type="button" data-act="novoAbrir"><span class="nm">+ NOVO JOGADOR</span></button>';
       h += '</div>';
+      if (st.novo) h += novoForm();
     } else {
       h += '<div class="box empty-box"><div class="msg">NENHUM JOGADOR AINDA</div>' +
-        '<div class="note">Cada jogador entra no site e cria o próprio perfil. Quem tem perfil aparece aqui.</div></div>';
+        '<div class="note">Digite o apelido de quem vai jogar. Não precisa de senha.</div></div>' + novoForm(true);
     }
     h += '<div class="grow"></div>';
     if (st.startErr) h += '<div class="err" role="alert">' + esc(st.startErr) + '</div>';
     h += '<div class="legend">Ao iniciar, a partida fica ao vivo para todo mundo e só este aparelho marca os pontos.</div>';
     h += '<button class="btn go start" type="button" data-act="start"' + (p.length !== 2 || st.busy ? ' disabled' : '') + '>' + (st.busy ? 'INICIANDO...' : 'INICIAR') + '</button>';
     return h + '</section>';
+  }
+
+  // cadastro rápido: só o apelido
+  function novoForm(sozinho) {
+    return '<form id="novoForm" class="box novo-form" novalidate>' +
+      '<label class="lbl" for="novoNome">NOVO JOGADOR</label>' +
+      '<div class="row"><input id="novoNome" class="field" type="text" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="APELIDO" value="' + esc(st.novoNome) + '">' +
+      '<button class="btn go" type="submit"' + (st.busy ? ' disabled' : '') + '>' + (st.busy ? '...' : 'ADICIONAR') + '</button></div>' +
+      '<div id="novoErr" class="err" role="alert">' + esc(st.novoErr) + '</div>' +
+      (sozinho ? '' : '<div class="row"><button class="btn ghost" type="button" data-act="novoCancelar">CANCELAR</button></div>') +
+      '</form>';
   }
 
   function serveTag(label) {
@@ -561,23 +596,15 @@
   }
 
   /* ---------- tutorial ----------
-     Aparece uma vez para cada perfil que entra neste aparelho (novo ou antigo).
-     Dá para abrir de novo no Perfil, em COMO FUNCIONA. */
-  function tutorialSeen(id) {
-    try { return (JSON.parse(localStorage.getItem(TUTORIAL_KEY) || '[]')).indexOf(id) >= 0; } catch (e) { return false; }
-  }
-  function markTutorialSeen(id) {
-    try {
-      var l = JSON.parse(localStorage.getItem(TUTORIAL_KEY) || '[]');
-      if (l.indexOf(id) < 0) l.push(id);
-      localStorage.setItem(TUTORIAL_KEY, JSON.stringify(l));
-    } catch (e) {}
+     Aparece uma vez em cada aparelho. Dá para abrir de novo na aba Jogadores, em COMO FUNCIONA. */
+  function tutorialSeen() {
+    try { return localStorage.getItem(TUTORIAL_KEY) === '1'; } catch (e) { return true; }
   }
   function maybeTutorial() {
-    if (st.me && st.onb === null && !tutorialSeen(st.me.id)) st.onb = 0;
+    if (st.onb === null && !tutorialSeen()) st.onb = 0;
   }
   function closeTutorial() {
-    if (st.me) markTutorialSeen(st.me.id);
+    try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch (e) {}
     set({ onb: null });
   }
 
@@ -601,26 +628,26 @@
   function obBoard(c1, c2) { return '<div class="ob-board">' + c1 + '<div class="ob-vs">VS</div>' + c2 + '</div>'; }
 
   function tutorialSteps() {
-    var me = st.me ? esc(st.me.nome) : 'VOCÊ';
+    var me = st.eu && st.names[st.eu] ? esc(st.names[st.eu]) : 'VOCÊ';
     return [
       { title: 'BEM-VINDO À DISPUTA!',
         art: '<div class="ob-hero">' + ART.paddle + '<span class="ob-ball bounce"></span>' + '<svg class="ob-paddle flip" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true"><use href="#paddle"></use></svg></div>',
         text: 'Este é o placar de ping-pong da Elsys. Em poucos passos você aprende a marcar pontos, acompanhar jogos ao vivo e subir no ranking.' },
       { title: 'AS 4 ABAS',
         art: '<div class="ob-tabs-art">' +
-          '<div class="ob-tabrow"><span class="on">PARTIDA</span><span>RANKING</span><span>HISTÓRICO</span><span>PERFIL</span></div>' +
+          '<div class="ob-tabrow"><span class="on">PARTIDA</span><span>RANKING</span><span>HISTÓRICO</span><span>JOGADORES</span></div>' +
           '<ul class="ob-list">' +
             '<li><b>PARTIDA</b> iniciar e acompanhar jogos</li>' +
             '<li><b>RANKING</b> quem tem mais vitórias</li>' +
             '<li><b>HISTÓRICO</b> quem ganha de quem</li>' +
-            '<li><b>PERFIL</b> seus números e seu apelido</li></ul></div>',
+            '<li><b>JOGADORES</b> os números de cada um</li></ul></div>',
         text: 'Tudo fica nessas quatro abas, no topo da tela. Toque em uma para trocar.' },
       { title: 'INICIAR UMA PARTIDA',
         art: '<div class="ob-setup">' +
           '<div class="ob-chips"><span class="ob-chip on">RAIO <i>1P</i></span><span class="ob-chip on">TROVÃO <i>2P</i></span>' +
           '<span class="ob-chip">FAÍSCA</span><span class="ob-chip">COMETA</span></div>' +
           '<div class="ob-start">INICIAR' + obTap(1) + '</div></div>',
-        text: 'Na aba Partida, toque nos 2 jogadores, escolha quem saca primeiro e toque em INICIAR. O seu aparelho vira o marcador dessa partida.' },
+        text: 'Na aba Partida, toque nos 2 jogadores, toque no lado da mesa de quem saca primeiro e em INICIAR. Seu nome não está na lista? Toque em + NOVO JOGADOR: é só o apelido, sem senha.' },
       { title: '1 TOQUE = PONTO',
         art: obBoard(obCard('1P', 'RAIO', '06', obTap(1) + '<span class="ob-fx plus">+1</span>'), obCard('2P', 'TROVÃO', '04')),
         text: 'Durante o jogo, toque uma vez no placar de quem fez o ponto. Aparece um +1 verde.' },
@@ -638,12 +665,12 @@
           '<div class="ob-rkrow"><span>2º</span><span class="n">TROVÃO</span><span class="pts">4</span></div>' +
           '<div class="ob-rkrow"><span>3º</span><span class="n">FAÍSCA</span><span class="pts">2</span></div></div>',
         text: 'A partida é melhor de 3 jogos de 11 pontos. Quando acabar, toque em SALVAR NO RANKING. Cada vitória vale 1 ponto e todo mundo vê na hora.' },
-      { title: 'HISTÓRICO E PERFIL',
+      { title: 'HISTÓRICO E JOGADORES',
         art: '<div class="ob-hp">' +
           '<div class="ob-pair"><span class="lead">RAIO</span><span class="sc">3 x 1</span><span>TROVÃO</span></div>' +
           '<div class="ob-tiles"><div><b>12</b><span>PARTIDAS</span></div><div><b class="win">8</b><span>VITÓRIAS</span></div><div><b>4</b><span>DERROTAS</span></div></div>' +
           '<div class="ob-me">' + me + '</div></div>',
-        text: 'No Histórico você vê quem ganha de quem. No Perfil ficam seus números, seus confrontos e a opção de mudar o apelido. Para rever este tutorial, toque em COMO FUNCIONA no Perfil.' }
+        text: 'No Histórico você vê quem ganha de quem. Em Jogadores, toque num nome para ver os números e os confrontos dele, e marque ESTE SOU EU para se destacar no ranking. Para rever este tutorial, toque em COMO FUNCIONA na aba Jogadores.' }
     ];
   }
 
@@ -711,51 +738,48 @@
       '<span class="n right' + (bWins > aWins ? ' lead' : (bWins < aWins ? ' trail' : '')) + '">' + esc(bName) + '</span></div>';
   }
 
-  /* ---------- boas-vindas: criar perfil ou entrar ---------- */
-  function viewWelcome() {
-    var criar = st.authMode === 'criar';
-    var h = '<section class="welcome">';
-    h += '<div class="welcome-hero">' +
-      '<div class="kicker">BEM-VINDO À DISPUTA</div>' +
-      '<h2 class="rgb glow welcome-title">VAMOS JOGAR?</h2>' +
-      '<p class="note">' + (criar ? 'Crie seu perfil com o apelido que você usa na mesa e um PIN de 4 números.'
-                                  : 'Entre com seu apelido e seu PIN de 4 números.') + '</p></div>';
-    h += '<div class="welcome-side"><form id="authForm" class="box auth-form" novalidate>' +
-      '<label class="lbl" for="authNome">APELIDO</label>' +
-      '<input id="authNome" class="field" type="text" maxlength="10" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="EX: RAIO" value="' + esc(st.authNome) + '">' +
-      '<label class="lbl" for="authPin">PIN · 4 NÚMEROS</label>' +
-      '<input id="authPin" class="field pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="' + (criar ? 'new-password' : 'current-password') + '" placeholder="••••" value="' + esc(st.authPin) + '">' +
-      '<div id="authErr" class="err" role="alert">' + esc(st.authErr) + '</div>' +
-      '<button class="btn go start" type="submit"' + (st.authBusy ? ' disabled' : '') + '>' +
-        (st.authBusy ? 'AGUARDE...' : (criar ? 'CRIAR PERFIL' : 'ENTRAR')) + '</button>' +
-      '</form>';
-    h += '<button class="link" type="button" data-act="authMode" data-v="' + (criar ? 'entrar' : 'criar') + '">' +
-      (criar ? 'Já tenho perfil · <b>ENTRAR</b>' : 'Ainda não tenho perfil · <b>CRIAR PERFIL</b>') + '</button>';
-    if (criar) h += '<div class="legend">Seu apelido aparece no ranking e no histórico. O PIN serve só para entrar no seu perfil; não use a senha de outro lugar.</div>';
-    return h + '</div></section>';
+  /* ---------- aba Jogadores: todo mundo, sem login ---------- */
+  function viewJogadores() {
+    if (st.jog && st.names[st.jog] && st.players.some(function (p) { return p.id === st.jog; })) return viewJogador(st.jog);
+    var rows = rankRows();
+    var h = '<section>';
+    if (st.eu && st.players.some(function (p) { return p.id === st.eu; })) {
+      h += '<button class="box eu-card" type="button" data-act="jog" data-v="' + st.eu + '">' +
+        '<span class="lbl">VOCÊ NESTE APARELHO</span><span class="eu-nm rgb glow">' + esc(st.names[st.eu]) + '</span>' +
+        '<span class="legend">Toque para ver seus números</span></button>';
+    }
+    h += '<div class="lbl">JOGADORES · ' + rows.length + '</div>';
+    h += '<div class="roster jog-list">';
+    rows.forEach(function (r, i) {
+      h += '<button class="opt chip' + (r.id === st.eu ? ' eu' : '') + '" type="button" data-act="jog" data-v="' + r.id + '">' +
+        '<span class="pos">' + (r.j ? (i + 1) + 'º' : '—') + '</span><span class="nm">' + esc(r.name) + '</span>' +
+        '<span class="badge">' + r.rank + ' V</span></button>';
+    });
+    h += '</div>';
+    if (!st.loaded) h += '<div class="note dim blink">Carregando jogadores...</div>';
+    else if (!rows.length) h += '<div class="note dim">Ninguém cadastrado ainda. Na aba Partida, toque em + NOVO JOGADOR.</div>';
+    else h += '<div class="legend">Toque num nome para ver as partidas e os confrontos dele. Novo jogador entra pela aba Partida.</div>';
+    h += '<div class="grow"></div><div class="row center">' +
+      '<button class="btn ghost" type="button" data-act="onbOpen">COMO FUNCIONA</button>' +
+      '<button class="btn ghost" type="button" data-act="tab" data-v="admin">' + (st.me ? 'PAINEL ADMIN' : 'ÁREA ADMIN') + '</button></div>';
+    return h + '</section>';
   }
 
-  /* ---------- perfil de quem está logado ---------- */
-  function viewPerfil() {
-    var me = st.me;
+  /* números, confrontos e últimas partidas de um jogador */
+  function viewJogador(id) {
+    var nome = nameOf(id), souEu = st.eu === id;
     var rows = rankRows();
     var pos = 0, mine = { rank: 0, j: 0, d: 0 };
-    rows.forEach(function (r, i) { if (r.id === me.id) { pos = i + 1; mine = r; } });
+    rows.forEach(function (r, i) { if (r.id === id) { pos = i + 1; mine = r; } });
     var h = '<section>';
-    h += '<div class="box profile-head">';
-    if (st.renaming) {
-      h += '<form id="renameForm" class="add-form">' +
-        '<label class="lbl" for="renameNome">NOVO APELIDO</label>' +
-        '<div class="row"><input id="renameNome" class="field" type="text" maxlength="10" autocomplete="off" spellcheck="false" value="' + esc(st.renameDraft) + '">' +
-        '<button class="btn go" type="submit"' + (st.busy ? ' disabled' : '') + '>SALVAR</button></div>' +
-        '<div class="err" role="alert">' + esc(st.renameErr) + '</div>' +
-        '<div class="row"><button class="btn ghost" type="button" data-act="renameCancel">CANCELAR</button></div></form>';
-    } else {
-      h += '<div class="lbl">SEU APELIDO</div>' +
-        '<div class="profile-name rgb glow">' + esc(me.nome) + '</div>' +
-        '<button class="btn ghost" type="button" data-act="renameOpen">MUDAR APELIDO</button>';
-    }
-    h += '</div>';
+    h += '<div class="row adm-top"><button class="btn ghost" type="button" data-act="jogVoltar">VOLTAR</button>' +
+      '<div class="lbl">JOGADOR</div></div>';
+    h += '<div class="box profile-head">' +
+      '<div class="profile-name rgb glow">' + esc(nome) + '</div>' +
+      (souEu ? '<div class="row center"><span class="eu-tag">ESTE É VOCÊ</span>' +
+                 '<button class="btn ghost" type="button" data-act="naoSouEu">NÃO SOU EU</button></div>'
+             : '<button class="btn ghost" type="button" data-act="souEu" data-v="' + id + '">ESTE SOU EU</button>') +
+      '</div>';
     h += '<div class="tiles">' +
       '<div class="box tile"><div class="num">' + mine.j + '</div><div class="lbl">PARTIDAS</div></div>' +
       '<div class="box tile"><div class="num win">' + mine.rank + '</div><div class="lbl">VITÓRIAS</div></div>' +
@@ -763,21 +787,21 @@
       '<div class="box tile"><div class="num">' + (mine.j ? pos + 'º' : '—') + '</div><div class="lbl">NO RANKING</div></div>' +
       '</div>';
 
-    var myPairs = pairs().filter(function (p) { return p.a === me.id || p.b === me.id; });
-    h += '<div class="two-col"><div class="stack"><div class="lbl">CONFRONTOS · VOCÊ CONTRA CADA UM</div>';
+    var myPairs = pairs().filter(function (p) { return p.a === id || p.b === id; });
+    h += '<div class="two-col"><div class="stack"><div class="lbl">CONFRONTOS · CONTRA CADA UM</div>';
     myPairs.forEach(function (p) {
-      var meFirst = p.a === me.id;
-      var opp = meFirst ? p.b : p.a, myW = meFirst ? p.winsA : p.winsB, opW = meFirst ? p.winsB : p.winsA;
-      h += '<div class="box pair">' + vsRow(me.nome, myW, nameOf(opp), opW) +
-        '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre vocês</div></div>';
+      var first = p.a === id;
+      var opp = first ? p.b : p.a, myW = first ? p.winsA : p.winsB, opW = first ? p.winsB : p.winsA;
+      h += '<div class="box pair">' + vsRow(nome, myW, nameOf(opp), opW) +
+        '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre eles</div></div>';
     });
-    if (!myPairs.length) h += '<div class="note dim">Você ainda não jogou nenhuma partida. Quando jogar, seus confrontos aparecem aqui.</div>';
+    if (!myPairs.length) h += '<div class="note dim">Ainda sem partidas. Os confrontos aparecem aqui depois do primeiro jogo.</div>';
     h += '</div>';
 
-    var myMatches = st.matches.filter(function (m) { return m.jogador_a === me.id || m.jogador_b === me.id; }).slice(0, 10);
-    h += '<div class="stack"><div class="lbl">SUAS ÚLTIMAS PARTIDAS</div>';
+    var myMatches = st.matches.filter(function (m) { return m.jogador_a === id || m.jogador_b === id; }).slice(0, 10);
+    h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
     myMatches.forEach(function (m) {
-      var meA = m.jogador_a === me.id;
+      var meA = m.jogador_a === id;
       var myG = meA ? m.jogos_a : m.jogos_b, opG = meA ? m.jogos_b : m.jogos_a, opp = meA ? m.jogador_b : m.jogador_a;
       var won = myG > opG;
       h += '<div class="match-line"><span class="res ' + (won ? 'w' : 'l') + '">' + (won ? 'VENCEU' : 'PERDEU') + '</span>' +
@@ -786,15 +810,24 @@
     });
     if (!myMatches.length) h += '<div class="note dim">Nenhuma partida ainda.</div>';
     h += '</div></div>';
-    h += '<div class="grow"></div>';
-    if (me.papel) {
-      h += '<div class="box adm-entry"><div class="stack"><div class="lbl">' + (me.papel === 'dono' ? 'VOCÊ É O DONO DO PLACAR' : 'VOCÊ É ADMIN') + '</div>' +
-        '<div class="legend">Limpar histórico, excluir perfis e resetar PIN' + (me.papel === 'dono' ? ', e escolher quem é admin.' : '.') + '</div></div>' +
-        '<button class="btn go" type="button" data-act="admOpen">PAINEL ADMIN</button></div>';
-    }
-    h += '<div class="row center">' +
-      '<button class="btn ghost" type="button" data-act="onbOpen">COMO FUNCIONA</button>' +
-      '<button class="btn ghost" type="button" data-act="logout">SAIR DESTE APARELHO</button></div>';
+    if (!souEu) h += '<div class="legend">ESTE SOU EU fica guardado só neste aparelho e destaca você no ranking. Não precisa de senha.</div>';
+    return h + '</section>';
+  }
+
+  /* ---------- área admin: o único lugar com PIN ---------- */
+  function viewAdminLogin() {
+    var h = '<section>';
+    h += '<div class="row adm-top"><button class="btn ghost" type="button" data-act="tab" data-v="jogadores">VOLTAR</button>' +
+      '<div class="lbl">ÁREA ADMIN</div></div>';
+    h += '<div class="welcome-side"><form id="authForm" class="box auth-form" novalidate>' +
+      '<div class="note">Só para os admins do placar. Para jogar não precisa entrar.</div>' +
+      '<label class="lbl" for="authNome">APELIDO</label>' +
+      '<input id="authNome" class="field" type="text" maxlength="10" autocomplete="username" autocapitalize="characters" spellcheck="false" value="' + esc(st.authNome) + '">' +
+      '<label class="lbl" for="authPin">PIN · 4 NÚMEROS</label>' +
+      '<input id="authPin" class="field pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="current-password" placeholder="••••" value="' + esc(st.authPin) + '">' +
+      '<div id="authErr" class="err" role="alert">' + esc(st.authErr) + '</div>' +
+      '<button class="btn go start" type="submit"' + (st.authBusy ? ' disabled' : '') + '>' + (st.authBusy ? 'AGUARDE...' : 'ENTRAR') + '</button>' +
+      '</form></div>';
     return h + '</section>';
   }
 
@@ -829,16 +862,19 @@
   }
 
   /* ---------- painel admin ----------
-     dono (BUMBLEBEE): limpa histórico, exclui perfis, reseta PIN, adiciona e tira admins.
-     admin: limpa histórico, exclui perfis e reseta PIN, mas não mexe no dono nem em outros admins.
+     dono (BUMBLEBEE): apaga histórico, muda apelidos, exclui jogadores, escolhe admins e define o PIN deles.
+     admin: apaga histórico, muda apelidos e exclui jogadores, mas não mexe no dono nem em outros admins.
      O banco confere tudo de novo; a tela só esconde o que a pessoa não pode fazer. */
   var ADM_MSG = {
     sem_permissao: 'Você não tem permissão para isso.',
     proprio_perfil: 'Isso não pode ser feito no seu próprio perfil.',
-    alvo_protegido: 'Esse perfil é de um admin. Só o dono mexe nele.',
+    alvo_protegido: 'Esse jogador é admin. Só o dono mexe nele.',
     em_partida: 'Esse jogador está numa partida ao vivo. Espere a partida acabar.',
     nao_encontrado: 'Jogador não encontrado. A lista foi atualizada.',
-    sem_pin: 'Esse jogador ainda não tem PIN. Ele precisa criar o perfil antes de virar admin.'
+    sem_pin: 'Defina um PIN para ele antes de torná-lo admin.',
+    apelido_invalido: 'Digite um apelido de 1 a 10 letras.',
+    apelido_em_uso: 'Esse apelido já está na lista.',
+    pin_invalido: 'O PIN precisa ter 4 números.'
   };
 
   var admLoading = false;
@@ -849,7 +885,7 @@
       admLoading = false;
       if (r && r.ok) {
         st.adm = r;
-        if (st.admSel && !r.jogadores.some(function (j) { return j.id === st.admSel; })) st.admSel = null;
+        if (st.admSel && !r.jogadores.some(function (j) { return j.id === st.admSel; })) { st.admSel = null; st.admForm = ''; }
         render();
       }
     }).catch(function (err) {
@@ -861,23 +897,26 @@
   function admFail(err) {
     if (err.code === 'sem_sessao') { logout(); return; }
     if (err.code === 'sem_permissao') {
-      // perdeu o acesso de admin enquanto estava no painel
-      set({ tab: 'perfil', adm: null, admBusy: false, admArm: '' });
+      // pode ter perdido o acesso de admin enquanto estava no painel: confere de novo
+      set({ admBusy: false, admArm: '', admMsg: '', admErr: ADM_MSG.sem_permissao });
       checkSession();
       return;
     }
+    var faltaNoBanco = err.status === 404 && err.body && err.body.code === 'PGRST202';
     set({ admBusy: false, admArm: '', admMsg: '',
-          admErr: ADM_MSG[err.code] || 'Não deu certo. Confira a internet e tente de novo.' });
+          admErr: faltaNoBanco ? 'Essa ação ainda não está ativa no banco.' : (ADM_MSG[err.code] || 'Não deu certo. Confira a internet e tente de novo.') });
     loadAdmin();
   }
 
-  function admRun(fn, args, okMsg) {
+  // roda uma ou mais funções do banco em sequência; para na primeira que falhar
+  function admRun(calls, okMsg) {
     if (st.admBusy) return;
-    args.p_token = loadToken();
+    var token = loadToken();
     set({ admBusy: true, admErr: '', admMsg: '', admArm: '' });
-    rpc(fn, args).then(function () {
-      st.admBusy = false;
-      st.admMsg = okMsg;
+    calls.reduce(function (prev, c) {
+      return prev.then(function () { var args = c[1]; args.p_token = token; return rpc(c[0], args); });
+    }, Promise.resolve()).then(function () {
+      st.admBusy = false; st.admMsg = okMsg; st.admForm = ''; st.admFormVal = '';
       refresh();
       loadAdmin();
       render();
@@ -888,11 +927,14 @@
   function admCan(j) {
     var eu = st.me, souDono = eu.papel === 'dono';
     var protegido = j.id === eu.id || j.papel === 'dono' || (j.papel === 'admin' && !souDono);
+    var podeAdmin = souDono && j.id !== eu.id && j.papel !== 'dono';
     return {
       apagar: j.partidas > 0,
-      pin: !protegido && (j.tem_pin || j.bloqueado),
+      renomear: !protegido || j.id === eu.id,
       excluir: !protegido,
-      admin: souDono && j.id !== eu.id && j.papel !== 'dono' && (j.papel === 'admin' || j.tem_pin)
+      darAdmin: podeAdmin && !j.papel,
+      tirarAdmin: podeAdmin && j.papel === 'admin',
+      pin: podeAdmin && j.papel === 'admin'
     };
   }
 
@@ -903,11 +945,25 @@
       (st.admBusy ? ' disabled' : '') + '>' + (armed ? 'CONFIRMAR?' : label) + '</button>';
   }
 
+  // formulário dentro do jogador aberto: novo apelido ou PIN
+  function admFormHtml(j) {
+    var ren = st.admForm === 'ren';
+    var label = ren ? 'NOVO APELIDO' : (st.admForm === 'pinAdmin' ? 'PIN DE 4 NÚMEROS PARA ' + esc(j.nome) + ' ENTRAR NA ÁREA ADMIN' : 'NOVO PIN DE ' + esc(j.nome));
+    return '<form id="admForm" class="add-form adm-actions" novalidate>' +
+      '<label class="lbl" for="admFormVal">' + label + '</label>' +
+      '<div class="row"><input id="admFormVal" class="field' + (ren ? '' : ' pin') + '" ' +
+        (ren ? 'type="text" maxlength="10" autocapitalize="characters"' : 'type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="new-password"') +
+        ' spellcheck="false" autocomplete="off" value="' + esc(st.admFormVal) + '">' +
+      '<button class="btn go" type="submit"' + (st.admBusy ? ' disabled' : '') + '>' + (st.admForm === 'pinAdmin' ? 'TORNAR ADMIN' : 'SALVAR') + '</button></div>' +
+      (ren ? '' : '<div class="legend">Passe o PIN para ele pessoalmente. Ele entra pela ÁREA ADMIN, na aba Jogadores.</div>') +
+      '<div class="row"><button class="btn ghost" type="button" data-act="admFormCancel">CANCELAR</button></div></form>';
+  }
+
   function viewAdmin() {
     var adm = st.adm, souDono = st.me.papel === 'dono';
     var h = '<section>';
-    h += '<div class="row adm-top"><button class="btn ghost" type="button" data-act="tab" data-v="perfil">VOLTAR</button>' +
-      '<div class="lbl">PAINEL ADMIN · ' + (souDono ? 'DONO' : 'ADMIN') + '</div></div>';
+    h += '<div class="row adm-top"><button class="btn ghost" type="button" data-act="tab" data-v="jogadores">VOLTAR</button>' +
+      '<div class="lbl">PAINEL ADMIN · ' + (souDono ? 'DONO' : 'ADMIN') + ' · ' + esc(st.me.nome) + '</div></div>';
     if (st.admErr) h += '<div class="err" role="alert">' + esc(st.admErr) + '</div>';
     if (st.admMsg) h += '<div class="ok-msg" role="status">' + esc(st.admMsg) + '</div>';
     if (!adm) return h + '<div class="note dim blink">Carregando painel...</div></section>';
@@ -919,24 +975,24 @@
       if (j.papel === 'dono') tags += '<span class="tag-s dono">DONO</span>';
       else if (j.papel === 'admin') tags += '<span class="tag-s admin">ADMIN</span>';
       if (j.id === st.me.id) tags += '<span class="tag-s">VOCÊ</span>';
-      if (!j.tem_pin) tags += '<span class="tag-s">SEM PIN</span>';
-      if (j.bloqueado) tags += '<span class="tag-s alert">BLOQUEADO</span>';
+      if (j.papel && j.bloqueado) tags += '<span class="tag-s alert">PIN BLOQUEADO</span>';
       h += '<div class="box adm-item' + (open ? ' open' : '') + '">' +
         '<button class="adm-head" type="button" data-act="admSel" data-v="' + j.id + '" aria-expanded="' + open + '">' +
           '<span class="nm">' + esc(j.nome) + '</span><span class="adm-tags">' + tags + '</span>' +
           '<span class="cnt">' + j.partidas + ' partida' + (j.partidas === 1 ? '' : 's') + '</span>' +
           '<span class="adm-caret" aria-hidden="true">' + (open ? '−' : '+') + '</span></button>';
-      if (open) {
+      if (open && st.admForm) {
+        h += admFormHtml(j);
+      } else if (open) {
         var acts = '';
         if (can.apagar) acts += admBtn('limpar', j.id, 'APAGAR PARTIDAS', true);
-        if (can.pin) acts += admBtn('pin', j.id, j.bloqueado ? 'DESBLOQUEAR / RESETAR PIN' : 'RESETAR PIN', true);
-        if (can.admin) acts += j.papel === 'admin' ? admBtn('tirarAdmin', j.id, 'TIRAR ADMIN', true) : admBtn('darAdmin', j.id, 'TORNAR ADMIN', false);
-        if (can.excluir) acts += admBtn('excluir', j.id, 'EXCLUIR PERFIL', true);
+        if (can.renomear) acts += admBtn('ren', j.id, 'MUDAR APELIDO', false);
+        if (can.darAdmin) acts += admBtn('darAdmin', j.id, 'TORNAR ADMIN', false);
+        if (can.pin) acts += admBtn('pin', j.id, j.bloqueado ? 'DESBLOQUEAR / NOVO PIN' : 'NOVO PIN', false);
+        if (can.tirarAdmin) acts += admBtn('tirarAdmin', j.id, 'TIRAR ADMIN', true);
+        if (can.excluir) acts += admBtn('excluir', j.id, 'EXCLUIR JOGADOR', true);
         h += acts ? '<div class="row center adm-actions">' + acts + '</div>'
-          : '<div class="note dim adm-actions">' + (j.papel === 'dono' ? 'Perfil do dono: ninguém mexe nele.' : j.id === st.me.id ? 'Seu perfil: nada a fazer aqui.' : 'Perfil de admin: só o dono mexe nele.') + '</div>';
-        if (souDono && j.papel !== 'admin' && j.papel !== 'dono' && j.id !== st.me.id && !j.tem_pin) {
-          h += '<div class="legend adm-actions">Para virar admin, ele precisa ter perfil com PIN.</div>';
-        }
+          : '<div class="note dim adm-actions">' + (j.papel === 'dono' ? 'Jogador do dono: ninguém mexe nele.' : 'Jogador admin: só o dono mexe nele.') + '</div>';
       }
       h += '</div>';
     });
@@ -948,9 +1004,10 @@
       (adm.partidas ? admBtn('limparTudo', 0, 'APAGAR TODO O HISTÓRICO', true) : '') + '</div>';
 
     h += '<div class="legend">Toque num jogador para ver as ações. APAGAR PARTIDAS tira do histórico as partidas dele. ' +
-      'RESETAR PIN desconecta a pessoa; ela cria um PIN novo em "Criar perfil" com o mesmo apelido. ' +
-      'EXCLUIR PERFIL tira a pessoa da lista e do ranking; as partidas dela ficam no histórico. ' +
-      (souDono ? 'Só você adiciona e tira admins. Admins não mexem no seu perfil nem no de outros admins.' : 'Só o dono adiciona e tira admins.') + '</div>';
+      'EXCLUIR JOGADOR tira o nome da lista e do ranking; as partidas dele ficam no histórico. ' +
+      (souDono ? 'Só você escolhe os admins: ao tornar alguém admin, você define o PIN que ele usa na ÁREA ADMIN. Admins não mexem em você nem em outros admins.'
+               : 'Só o dono escolhe os admins.') + '</div>';
+    h += '<div class="row center"><button class="btn ghost" type="button" data-act="logout">SAIR DA ÁREA ADMIN</button></div>';
     return h + '</section>';
   }
 
@@ -958,15 +1015,42 @@
     var parts = v.split(':'), acao = parts[0], id = Number(parts[1]);
     var j = st.adm && st.adm.jogadores.filter(function (x) { return x.id === id; })[0];
     var nome = j ? j.nome : '';
+    if (acao === 'ren') { set({ admForm: 'ren', admFormVal: nome, admErr: '', admMsg: '', admArm: '' }); focusAdmForm(true); return; }
+    if (acao === 'pin') { set({ admForm: 'pin', admFormVal: '', admErr: '', admMsg: '', admArm: '' }); focusAdmForm(); return; }
+    if (acao === 'darAdmin' && j && !j.tem_pin) { set({ admForm: 'pinAdmin', admFormVal: '', admErr: '', admMsg: '', admArm: '' }); focusAdmForm(); return; }
     var confirmar = acao !== 'darAdmin';
     if (confirmar && st.admArm !== v) { set({ admArm: v, admErr: '', admMsg: '' }); return; }
     switch (acao) {
-      case 'limpar': admRun('admin_limpar_historico', { p_id: id }, 'Partidas de ' + nome + ' apagadas.'); break;
-      case 'limparTudo': admRun('admin_limpar_historico', { p_id: null }, 'Histórico apagado.'); break;
-      case 'pin': admRun('admin_resetar_acesso', { p_id: id }, 'PIN de ' + nome + ' resetado. Ele cria um novo em "Criar perfil".'); break;
-      case 'excluir': admRun('admin_excluir_perfil', { p_id: id }, 'Perfil de ' + nome + ' excluído.'); break;
-      case 'darAdmin': admRun('admin_definir_admin', { p_id: id, p_admin: true }, nome + ' agora é admin.'); break;
-      case 'tirarAdmin': admRun('admin_definir_admin', { p_id: id, p_admin: false }, nome + ' não é mais admin.'); break;
+      case 'limpar': admRun([['admin_limpar_historico', { p_id: id }]], 'Partidas de ' + nome + ' apagadas.'); break;
+      case 'limparTudo': admRun([['admin_limpar_historico', { p_id: null }]], 'Histórico apagado.'); break;
+      case 'excluir': admRun([['admin_excluir_perfil', { p_id: id }]], nome + ' saiu da lista.'); break;
+      case 'darAdmin': admRun([['admin_definir_admin', { p_id: id, p_admin: true }]], nome + ' agora é admin. Ele entra pela ÁREA ADMIN com o PIN que já tem.'); break;
+      case 'tirarAdmin': admRun([['admin_definir_admin', { p_id: id, p_admin: false }]], nome + ' não é mais admin.'); break;
+    }
+  }
+
+  function focusAdmForm(select) {
+    var el = document.getElementById('admFormVal');
+    if (el) { el.focus(); if (select) try { el.select(); } catch (e) {} }
+  }
+
+  function submitAdmForm() {
+    var id = st.admSel, val = (st.admFormVal || '').trim();
+    var j = st.adm && st.adm.jogadores.filter(function (x) { return x.id === id; })[0];
+    if (!j) return;
+    if (st.admForm === 'ren') {
+      var nome = val.toUpperCase().slice(0, 10);
+      if (!nome) { set({ admErr: ADM_MSG.apelido_invalido }); return; }
+      if (nome === j.nome) { set({ admForm: '' }); return; }
+      admRun([['admin_renomear', { p_id: id, p_nome: nome }]], j.nome + ' agora é ' + nome + '.');
+      return;
+    }
+    if (!/^[0-9]{4}$/.test(val)) { set({ admErr: ADM_MSG.pin_invalido }); return; }
+    if (st.admForm === 'pinAdmin') {
+      admRun([['admin_definir_pin', { p_id: id, p_pin: val }], ['admin_definir_admin', { p_id: id, p_admin: true }]],
+        j.nome + ' agora é admin. Passe o PIN para ele.');
+    } else {
+      admRun([['admin_definir_pin', { p_id: id, p_pin: val }]], 'PIN de ' + j.nome + ' trocado.');
     }
   }
 
@@ -985,7 +1069,7 @@
     rows.forEach(function (r, i) {
       var top = i === 0 && r.rank > 0;
       var won = flash && flash.winner === r.id;
-      var isMe = st.me && st.me.id === r.id;
+      var isMe = st.eu === r.id;
       h += '<div class="rk line' + (top ? ' top' : '') + (won ? ' won' : '') + (isMe ? ' me' : '') + '"><span>' + (i + 1) + 'º</span><span class="n">' + esc(r.name) + '</span>' +
         '<span class="r pts">' + (won ? '<span class="plus blink">+1</span>' : '') + r.rank + '</span>' +
         '<span class="r">' + r.j + '</span><span class="r">' + r.d + '</span>' +
@@ -1015,16 +1099,13 @@
 
   function render() {
     var body, bar = '';
-    if (!st.authChecked) body = '<section><div class="note dim blink">Carregando...</div></section>';
-    else if (!st.me) body = viewWelcome();
-    else {
-      bar = tabs();
-      if (st.tab === 'ranking') body = viewRanking();
-      else if (st.tab === 'historico') body = viewHistorico();
-      else if (st.tab === 'perfil') body = viewPerfil();
-      else if (st.tab === 'admin') body = st.me.papel ? viewAdmin() : viewPerfil();
-      else body = (st.playing || st.live) ? viewBoard() : viewSetup();
-    }
+    // ninguém precisa entrar: o site abre direto nas abas
+    bar = tabs();
+    if (st.tab === 'ranking') body = viewRanking();
+    else if (st.tab === 'historico') body = viewHistorico();
+    else if (st.tab === 'jogadores') body = viewJogadores();
+    else if (st.tab === 'admin') body = st.me ? viewAdmin() : viewAdminLogin();
+    else body = (st.playing || st.live) ? viewBoard() : viewSetup();
     // a tela se atualiza sozinha; quem está digitando não perde o texto nem o cursor
     var act = document.activeElement;
     var typingId = act && act.tagName === 'INPUT' && act.id ? act.id : null;
@@ -1034,7 +1115,7 @@
     tabbar.innerHTML = bar;
     view.innerHTML = body;
     view.scrollTop = scroll;
-    var tut = st.me && st.onb !== null;
+    var tut = st.onb !== null;
     var hadTut = !!overlay.firstChild;
     overlay.innerHTML = tut ? viewTutorial() : '';
     content.inert = tut;
@@ -1093,14 +1174,35 @@
 
     switch (act) {
       case 'tab':
-        set({ tab: v, quitArm: false, renaming: false, admArm: '' });
-        break;
-      case 'admOpen':
-        set({ tab: 'admin', admErr: '', admMsg: '', admArm: '', admSel: null });
-        loadAdmin();
+        if (v === 'admin') { st.admErr = ''; st.admMsg = ''; st.admSel = null; st.admForm = ''; st.authErr = ''; }
+        set({ tab: v, quitArm: false, admArm: '', jog: v === 'jogadores' ? st.jog : null, novo: v === 'partida' ? st.novo : false });
+        if (v === 'admin') loadAdmin();
         break;
       case 'admSel':
-        set({ admSel: st.admSel === Number(v) ? null : Number(v), admArm: '', admErr: '', admMsg: '' });
+        set({ admSel: st.admSel === Number(v) ? null : Number(v), admArm: '', admErr: '', admMsg: '', admForm: '' });
+        break;
+      case 'admFormCancel':
+        set({ admForm: '', admFormVal: '', admErr: '' });
+        break;
+      case 'jog':
+        set({ jog: Number(v) });
+        view.scrollTop = 0;
+        break;
+      case 'jogVoltar':
+        set({ jog: null });
+        break;
+      case 'souEu':
+        saveEu(Number(v));
+        break;
+      case 'naoSouEu':
+        saveEu(null);
+        break;
+      case 'novoAbrir':
+        set({ novo: true, novoErr: '' });
+        var ni = document.getElementById('novoNome'); if (ni) ni.focus();
+        break;
+      case 'novoCancelar':
+        set({ novo: false, novoNome: '', novoErr: '' });
         break;
       case 'admDo':
         admDo(v);
@@ -1110,18 +1212,8 @@
       case 'onbGo': set({ onb: Number(v) }); break;
       case 'onbSkip': case 'onbDone': closeTutorial(); break;
       case 'onbOpen': set({ onb: 0 }); break;
-      case 'authMode':
-        set({ authMode: v, authErr: '', authPin: '' });
-        break;
       case 'logout':
         logout();
-        break;
-      case 'renameOpen':
-        set({ renaming: true, renameDraft: st.me ? st.me.nome : '', renameErr: '' });
-        var ri = document.getElementById('renameNome'); if (ri) { ri.focus(); ri.select(); }
-        break;
-      case 'renameCancel':
-        set({ renaming: false, renameErr: '' });
         break;
       case 'pick': {
         if (st.live) return;
@@ -1189,7 +1281,11 @@
       if (el.value !== digits) el.value = digits;
       st.authPin = digits; clearMsg('authErr', 'authErr');
     }
-    else if (el.id === 'renameNome') { st.renameDraft = el.value.toUpperCase().slice(0, 10); }
+    else if (el.id === 'novoNome') { st.novoNome = el.value.toUpperCase().slice(0, 10); clearMsg('novoErr', 'novoErr'); }
+    else if (el.id === 'admFormVal') {
+      if (st.admForm === 'ren') st.admFormVal = el.value.toUpperCase().slice(0, 10);
+      else { var pin = el.value.replace(/\D/g, '').slice(0, 4); if (el.value !== pin) el.value = pin; st.admFormVal = pin; }
+    }
   });
   function clearMsg(id, key) {
     if (!st[key]) return;
@@ -1203,7 +1299,8 @@
   view.addEventListener('submit', function (e) {
     e.preventDefault();
     if (e.target.id === 'authForm') doAuth();
-    else if (e.target.id === 'renameForm') doRename();
+    else if (e.target.id === 'novoForm') addPlayer();
+    else if (e.target.id === 'admForm') submitAdmForm();
   });
 
   /* ---------- tempo real ---------- */
@@ -1238,6 +1335,8 @@
   setInterval(function () { if (st.playing) push(); }, HEARTBEAT_MS);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { refreshLive(); refresh(); } });
 
+  st.eu = loadEu();
+  maybeTutorial();
   render();
   checkSession();
   refresh();
