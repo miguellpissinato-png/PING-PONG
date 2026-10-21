@@ -27,6 +27,12 @@ A tela ocupa a janela inteira e se reorganiza conforme o tamanho e a orientaçã
 
 Textos, números e botões crescem e encolhem com a tela, e os botões nunca ficam menores que o tamanho mínimo de toque.
 
+### Ícone e atalho no celular
+
+O ícone é a mesa de ping-pong vista de cima, em pixel. Ele aparece na aba do navegador e no atalho da tela inicial: no iPhone, abra o site no Safari e toque em **Compartilhar › Adicionar à Tela de Início**; no Android, menu do Chrome **› Adicionar à tela inicial**. O atalho abre o placar em tela cheia, com o nome **Disputa**.
+
+Arquivos: `icon.svg` (desenho original), `icon-512.png`, `icon-192.png`, `apple-touch-icon.png`, `favicon-32.png` e `manifest.webmanifest`.
+
 ### Publicar no GitHub Pages
 
 1. No repositório, vá em **Settings › Pages**.
