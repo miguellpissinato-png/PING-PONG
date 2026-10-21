@@ -460,3 +460,60 @@ nav.tabs { display: flex; flex: none; }
 @keyframes bnc { from { transform: translateY(-60%) } to { transform: translateY(50%) } }
 @media (prefers-reduced-motion: reduce) { .dot { animation: none; } .jitter, .rgb, .flash, .tear, .px, .roll, .scan, .blink, .bounce { animation: none !important; } }
 #tabbar { flex: none; }
+
+/* ---------- mesa de jogo: o placar da partida vira uma mesa de ping-pong vista de cima ----------
+   Em pé: 1P em cima, rede no meio, 2P embaixo. Deitado: 1P à esquerda, rede no meio, 2P à direita. */
+:root { --mesa: #1a4fb8; --mesa-borda: calc(var(--border) * 1.3); --amarelo: #ffd84a; }
+.board.mesa {
+  gap: 0; background: var(--mesa);
+  margin: calc(var(--gap-s) * .6) calc(var(--gap-s) * 1.2) calc(var(--gap-s) + var(--border) * 3);
+  box-shadow: inset 0 0 0 var(--mesa-borda) var(--ink), 0 0 0 var(--border) var(--ground),
+              0 calc(var(--border) * 3) 0 var(--border) #0c2a6e, 0 calc(var(--border) * 3) 0 calc(var(--border) * 2) var(--ground);
+}
+.board.mesa::after { content: ''; position: absolute; inset: var(--mesa-borda); pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(5,10,28,0) 0 3px, rgba(5,10,28,.08) 3px 6px); }
+.mesa-linha { position: absolute; top: var(--mesa-borda); bottom: var(--mesa-borda); left: 50%; width: 2px; margin-left: -1px; background: rgba(244,247,255,.45); pointer-events: none; }
+.rede { position: relative; z-index: 2; align-self: center; height: clamp(10px, 1.8vmin, 20px);
+  margin: 0 calc(var(--gap-s) * -1.2 - 4px);
+  background: repeating-linear-gradient(90deg, #dbe3ff 0 2px, #6f80bd 2px 5px);
+  box-shadow: inset 0 3px 0 var(--ink), 0 4px 0 rgba(5,10,28,.45); }
+.rede::before, .rede::after { content: ''; position: absolute; top: 50%; width: clamp(6px, 1vmin, 10px); height: 260%; transform: translateY(-50%); background: #c9d4ff; box-shadow: inset -3px 0 0 #6f80bd; }
+.rede::before { left: -4px; }
+.rede::after { right: -4px; }
+.mesa .player.box, .mesa .player.tap:disabled { background: transparent; box-shadow: none; }
+.mesa .player { position: relative; z-index: 1; }
+.mesa .player.tap:hover { background: rgba(244,247,255,.06); }
+.mesa .player.tap:active { background: rgba(57,255,122,.16); box-shadow: inset 0 0 0 var(--border) var(--green); }
+.mesa .player.tap:focus-visible { outline-color: var(--amarelo); outline-offset: calc(var(--border) * -3); }
+.mesa .player .tag, .mesa .games .vt { color: #dbe5ff; }
+.mesa .digits { text-shadow: 0 .06em 0 rgba(5,10,28,.45), 0 0 .2em rgba(190,215,255,.45); }
+.mesa .pip { box-shadow: inset 0 0 0 var(--border) rgba(244,247,255,.7); }
+.mesa .pip.on { background: var(--ink); box-shadow: inset 0 0 0 var(--border) var(--ink), 0 0 10px rgba(244,247,255,.8); }
+.nm-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: .5em .8em; }
+.serve-chip { display: inline-flex; align-items: center; gap: .55em; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--ground); background: var(--amarelo); padding: .5em .6em; flex: none; }
+.serve-chip svg { width: 1.1em; height: 1.1em; }
+@keyframes press { 0% { background: rgba(244,247,255,.14); } 100% { background: transparent; } }
+.rq { position: absolute; z-index: 3; width: calc(var(--tap) * .8); height: calc(var(--tap) * 1.15); pointer-events: none; }
+.rq.r1 { right: calc(var(--gap-s) * -.6); top: calc(var(--tap) * -.45); transform: rotate(32deg); }
+.rq.r2 { left: calc(var(--gap-s) * -.6); bottom: calc(var(--tap) * -.5); transform: rotate(212deg); }
+.live-head .jogo-n { font-size: var(--vt-md); color: var(--ink-soft); letter-spacing: .08em; }
+.mesa .banner { z-index: 4; }
+
+/* em pé, o 2P fica de frente para o 1P: placar perto da rede, nome perto da borda */
+@media (orientation: portrait) {
+  .mesa .player.p2 { flex-direction: column-reverse; }
+}
+/* deitado, a mesa gira: rede vertical e linha do meio na horizontal */
+@media (orientation: landscape) {
+  .mesa-linha { top: 50%; bottom: auto; left: var(--mesa-borda); right: var(--mesa-borda); width: auto; height: 2px; margin: -1px 0 0; }
+  .rede { align-self: stretch; justify-self: center; height: auto; width: clamp(10px, 1.8vmin, 20px);
+    margin: calc(var(--gap-s) * -1.2 - 4px) 0;
+    background: repeating-linear-gradient(0deg, #dbe3ff 0 2px, #6f80bd 2px 5px);
+    box-shadow: inset 3px 0 0 var(--ink), 4px 0 0 rgba(5,10,28,.45); }
+  .rede::before, .rede::after { top: auto; left: 50%; width: 260%; height: clamp(6px, 1vmin, 10px); transform: translateX(-50%); box-shadow: inset 0 -3px 0 #6f80bd; }
+  .rede::before { top: -4px; }
+  .rede::after { bottom: -4px; }
+  .rq.r1 { left: calc(var(--gap-s) * -1); right: auto; top: calc(var(--tap) * -.45); transform: rotate(-32deg); }
+  .rq.r2 { right: calc(var(--gap-s) * -1); left: auto; bottom: calc(var(--tap) * -.5); transform: rotate(148deg); }
+}
+@media (prefers-reduced-motion: reduce) { .serve-chip { animation: none; } }
