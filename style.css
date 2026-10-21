@@ -555,3 +555,17 @@ nav.tabs { display: flex; flex: none; }
 .jog-list .chip.on .pos, .jog-list .chip:hover .pos { color: inherit; }
 .chip.eu { box-shadow: inset 0 0 0 var(--border) var(--ink); color: var(--ink); }
 .eu-tag { font-size: var(--fs-xs); letter-spacing: .1em; color: var(--ground); background: var(--amarelo); padding: .55em .7em; align-self: center; }
+
+/* ---------- regras da partida (antes de INICIAR) ---------- */
+.regras { display: flex; flex-direction: column; gap: var(--gap-s); padding: var(--gap-s) var(--gap); flex: none; }
+.regras-top { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-s); }
+.regras-top .rg-mudar { min-height: calc(var(--tap) * .8); padding: 0 1em; font-size: var(--fs-xs); flex: none; }
+.regras-resumo { font-size: var(--fs-sm); line-height: 1.6; letter-spacing: .06em; color: var(--ink); }
+.regras.aberta .regras-resumo { color: var(--ink-soft); }
+.rg-linha { display: flex; flex-direction: column; gap: .6em; padding-top: var(--gap-s); border-top: var(--border) dotted var(--line-2); }
+.stepper { display: flex; align-items: stretch; gap: var(--gap-s); }
+.stepper .btn.x { font-size: var(--fs-md); flex: none; min-height: var(--tap); }
+.rg-num { flex: 1; min-width: 0; min-height: var(--tap); text-align: center; font-size: var(--fs-md); }
+.rg-val { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--ink);
+  box-shadow: inset 0 0 0 var(--border) var(--line-2); padding: 0 .6em; text-align: center; }
+.rg-opts .rg-opt { font-size: var(--fs-xs); line-height: 1.4; padding: .4em .8em; }

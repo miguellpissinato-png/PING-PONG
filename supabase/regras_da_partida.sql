@@ -8,8 +8,8 @@
 --                  o primeiro vence na hora (null = desligada). Ex.: 3 direto, senão vai até 5.
 --   regra_jogos    jogos que é preciso vencer para levar a partida (1 = jogo único, 2 = melhor de 3...)
 --
--- Compatível com a versão anterior do site: quem chama iniciar_partida sem as regras
--- continua jogando 11 pontos, vantagem de 2, melhor de 3.
+-- Compatível com a versão anterior do site: quem chama iniciar_partida (sem regras)
+-- continua jogando 11 pontos, vantagem de 2, melhor de 3. O site novo usa iniciar_partida_regras.
 
 -- partida ao vivo
 alter table public.partida_ao_vivo
@@ -59,13 +59,10 @@ alter table public.partidas
 
 comment on table public.partidas is 'Partidas encerradas, com as regras usadas em cada uma. Qualquer visitante lê e registra; ninguém edita ou apaga pelo site.';
 
--- iniciar_partida agora recebe as regras (com os valores antigos como padrão)
-drop function if exists public.iniciar_partida(bigint, bigint, smallint, text);
-
-create or replace function public.iniciar_partida(
+-- iniciar_partida_regras: o site novo inicia a partida com as regras escolhidas
+create or replace function public.iniciar_partida_regras(
   p_jogador_a bigint, p_jogador_b bigint, p_primeiro smallint, p_chave text,
-  p_regra_pontos integer default 11, p_regra_vantagem boolean default true,
-  p_regra_direto integer default null, p_regra_jogos integer default 2)
+  p_regra_pontos integer, p_regra_vantagem boolean, p_regra_direto integer, p_regra_jogos integer)
 returns timestamptz language plpgsql security definer set search_path to '' as $$
 declare
   v_inicio timestamptz;
@@ -101,8 +98,15 @@ begin
   return v_inicio;
 end;
 $$;
-revoke all on function public.iniciar_partida(bigint, bigint, smallint, text, integer, boolean, integer, integer) from public;
-grant execute on function public.iniciar_partida(bigint, bigint, smallint, text, integer, boolean, integer, integer) to anon, authenticated;
+revoke all on function public.iniciar_partida_regras(bigint, bigint, smallint, text, integer, boolean, integer, integer) from public;
+grant execute on function public.iniciar_partida_regras(bigint, bigint, smallint, text, integer, boolean, integer, integer) to anon, authenticated;
+
+-- iniciar_partida (sem regras) continua existindo para quem ainda está com o site antigo aberto:
+-- inicia com as regras clássicas (11 pontos, vantagem de 2, melhor de 3)
+create or replace function public.iniciar_partida(p_jogador_a bigint, p_jogador_b bigint, p_primeiro smallint, p_chave text)
+returns timestamptz language sql security definer set search_path to '' as $$
+  select public.iniciar_partida_regras(p_jogador_a, p_jogador_b, p_primeiro, p_chave, 11, true, null, 2);
+$$;
 
 -- encerrar_partida guarda as regras junto com o resultado
 create or replace function public.encerrar_partida(p_chave text, p_salvar boolean, p_jogos_a smallint, p_jogos_b smallint, p_pontos_a integer, p_pontos_b integer)
@@ -127,3 +131,5 @@ begin
   update public.partida_ao_vivo_dono set chave = 'encerrada-' || md5(random()::text) where id = 1;
 end;
 $$;
+
+notify pgrst, 'reload schema';
