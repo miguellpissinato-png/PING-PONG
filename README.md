@@ -40,14 +40,28 @@ Só existe uma partida em andamento por vez.
 - Se o marcador recarregar a página no mesmo aparelho, ele continua no controle.
 - A partida termina quando o marcador toca em **SALVAR NO RANKING** ou em **ENCERRAR**. Se ninguém marcar ponto por 20 minutos, aparece para todos o botão **LIBERAR PLACAR**.
 
+## Painel admin
+
+O perfil **BUMBLEBEE** é o dono do placar. Na aba **Perfil**, dono e admins veem o botão **PAINEL ADMIN**.
+
+| Ação | Dono | Admin |
+| --- | --- | --- |
+| Apagar as partidas de um jogador ou todo o histórico | sim | sim |
+| Excluir perfil (sai da lista e do ranking; as partidas ficam no histórico) | sim | sim, menos dono e admins |
+| Resetar PIN (desbloqueia e desconecta; a pessoa cria um PIN novo em "Criar perfil") | sim | sim, menos dono e admins |
+| Tornar admin e tirar admin | sim | não |
+
+Ninguém mexe no perfil do dono. Ações que apagam pedem confirmação (o botão vira **CONFIRMAR?**). O banco confere o login e o papel em cada ação, então esconder ou mostrar botões no site não muda o que cada um pode fazer.
+
+O SQL do painel está em `supabase/painel_admin.sql`.
+
 ## Onde os dados ficam
 
 Jogadores, partidas e a partida ao vivo ficam num banco [Supabase](https://supabase.com) compartilhado (projeto `placar-disputa-elsys`). O site usa o tempo real do Supabase para mostrar mudanças na hora; se a conexão de tempo real cair, ele consulta o banco a cada 2 segundos.
 
 - **Cadastrar jogador** e **registrar partida** ficam salvos para todos.
-- **Remover jogador** tira o nome da lista e do ranking para todos, mas as partidas dele continuam no histórico.
 - A **partida ao vivo** fica na tabela `partida_ao_vivo`. Só o aparelho que iniciou consegue mudar o placar, pelas funções do banco (`iniciar_partida`, `atualizar_partida`, `encerrar_partida`, `liberar_partida_parada`).
-- Pelo site ninguém consegue editar nomes, apagar ou registrar partidas fora da partida ao vivo, nem zerar o ranking. Isso é feito no painel do Supabase, em **Table Editor**.
+- Pelo site, só admins apagam partidas, excluem perfis ou resetam PIN (veja **Painel admin**). Ninguém edita nomes de outras pessoas nem registra partidas fora da partida ao vivo.
 
 Cada pessoa entra com apelido e PIN. O PIN é guardado só como hash (bcrypt) numa tabela que o site não consegue ler, e 5 PINs errados seguidos bloqueiam o perfil por 5 minutos. É um PIN de 4 números, então serve para separar os perfis, não para proteger nada importante. Apelidos que já existiam antes dos perfis podem ser assumidos por quem criar o perfil com o mesmo apelido primeiro.
 
@@ -61,8 +75,11 @@ Cada pessoa entra com apelido e PIN. O PIN é guardado só como hash (bcrypt) nu
 | `partida_ao_vivo_dono` | Chave secreta do aparelho que iniciou. Ninguém lê pelo site |
 | `jogadores_acesso` | Hash do PIN de cada perfil e tentativas erradas. Ninguém lê pelo site |
 | `sessoes` | Logins abertos (hash do token guardado no aparelho). Ninguém lê pelo site |
+| `admins` | Quem é admin e quem é o dono (BUMBLEBEE). Ninguém lê pelo site |
 
-Funções de perfil: `criar_perfil`, `entrar`, `meu_perfil`, `renomear_perfil`, `sair` e `iniciar_partida_logado` (iniciar partida exige estar logado).
+Funções de perfil: `criar_perfil`, `entrar`, `meu_perfil` (devolve também o papel: dono, admin ou nenhum), `renomear_perfil`, `sair` e `iniciar_partida_logado` (iniciar partida exige estar logado).
+
+Funções do painel admin: `admin_painel`, `admin_limpar_historico`, `admin_excluir_perfil`, `admin_resetar_acesso` e `admin_definir_admin` (só o dono).
 
 O endereço do banco e a chave pública ficam no topo do `app.js`. A chave pública pode ficar no código: ela só permite o que as regras do banco liberam.
 
