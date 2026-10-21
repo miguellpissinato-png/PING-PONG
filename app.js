@@ -35,7 +35,10 @@
     playing: false, m1: null, m2: null, hist: [], g1: 0, g2: 0, first: 1, pts1: 0, pts2: 0,
     quitArm: false, saveErr: '', syncErr: '',
     tapFx: null,         // { v, text, minus, until } — +1 / −1 que aparece no placar tocado
-    onb: null            // passo do tutorial aberto (ou null)
+    onb: null,           // passo do tutorial aberto (ou null)
+    // painel admin (só para quem tem papel 'dono' ou 'admin')
+    adm: null,           // { papel, partidas, jogadores: [...] } vindo do banco
+    admBusy: false, admErr: '', admMsg: '', admSel: null, admArm: ''
   };
 
   function set(patch) {
@@ -94,7 +97,11 @@
     var t = loadToken();
     if (!t) { set({ me: null, authChecked: true }); return Promise.resolve(); }
     return rpc('meu_perfil', { p_token: t }).then(function (r) {
-      if (r && r.ok) { st.me = { id: r.id, nome: r.nome }; st.authChecked = true; maybeTutorial(); render(); }
+      if (r && r.ok) {
+        st.me = { id: r.id, nome: r.nome, papel: r.papel || null }; st.authChecked = true;
+        if (st.tab === 'admin' && !st.me.papel) st.tab = 'perfil';
+        maybeTutorial(); render();
+      }
       else { saveToken(null); set({ me: null, authChecked: true }); }
     }).catch(function () {
       // sem internet: mantém a pessoa na tela e tenta de novo depois
@@ -127,6 +134,7 @@
         maybeTutorial();
         set({ authBusy: false, authPin: '', authNome: '', authErr: '', tab: 'partida' });
         refresh();
+        checkSession(); // traz o papel (dono/admin) do perfil
         return;
       }
       var msg = AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.';
@@ -142,7 +150,8 @@
     var t = loadToken();
     saveToken(null);
     if (t) rpc('sair', { p_token: t }).catch(function () {});
-    set({ me: null, tab: 'partida', authMode: 'entrar', renaming: false, picked: [], onb: null });
+    set({ me: null, tab: 'partida', authMode: 'entrar', renaming: false, picked: [], onb: null,
+          adm: null, admErr: '', admMsg: '', admSel: null, admArm: '' });
   }
 
   function doRename() {
@@ -152,7 +161,7 @@
     set({ busy: true, renameErr: '' });
     rpc('renomear_perfil', { p_token: loadToken(), p_nome: nome }).then(function (r) {
       st.busy = false;
-      if (r && r.ok) { set({ me: { id: r.id, nome: r.nome }, renaming: false }); refresh(); return; }
+      if (r && r.ok) { set({ me: { id: r.id, nome: r.nome, papel: st.me && st.me.papel }, renaming: false }); refresh(); return; }
       if (r && r.erro === 'sem_sessao') { logout(); return; }
       set({ renameErr: r && r.erro === 'apelido_em_uso' ? 'Esse apelido já é de outra pessoa.' : (AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.') });
     }).catch(function () {
@@ -194,6 +203,7 @@
       noticeNewMatch(res[1]);
       st.picked = st.picked.filter(function (id) { return active[id]; });
       if (st.delArm && !active[st.delArm]) st.delArm = null;
+      if (st.tab === 'admin') loadAdmin();
       render();
     }).catch(function () {
       if (!st.netErr || !st.loaded) { st.netErr = true; st.loaded = true; render(); }
@@ -396,7 +406,8 @@
 
   function tabs() {
     function t(id, label) {
-      return '<button class="tab' + (st.tab === id ? ' on' : '') + '" type="button" data-act="tab" data-v="' + id + '">' + label + '</button>';
+      var on = st.tab === id || (id === 'perfil' && st.tab === 'admin');
+      return '<button class="tab' + (on ? ' on' : '') + '" type="button" data-act="tab" data-v="' + id + '">' + label + '</button>';
     }
     var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('perfil', 'PERFIL') + '</nav>';
     if (st.tab !== 'partida') bar += liveBadge();
@@ -741,7 +752,13 @@
     });
     if (!myMatches.length) h += '<div class="note dim">Nenhuma partida ainda.</div>';
     h += '</div></div>';
-    h += '<div class="grow"></div><div class="row center">' +
+    h += '<div class="grow"></div>';
+    if (me.papel) {
+      h += '<div class="box adm-entry"><div class="stack"><div class="lbl">' + (me.papel === 'dono' ? 'VOCÊ É O DONO DO PLACAR' : 'VOCÊ É ADMIN') + '</div>' +
+        '<div class="legend">Limpar histórico, excluir perfis e resetar PIN' + (me.papel === 'dono' ? ', e escolher quem é admin.' : '.') + '</div></div>' +
+        '<button class="btn go" type="button" data-act="admOpen">PAINEL ADMIN</button></div>';
+    }
+    h += '<div class="row center">' +
       '<button class="btn ghost" type="button" data-act="onbOpen">COMO FUNCIONA</button>' +
       '<button class="btn ghost" type="button" data-act="logout">SAIR DESTE APARELHO</button></div>';
     return h + '</section>';
@@ -775,6 +792,148 @@
     else if (!list.length) h += '<div class="note dim">' + (filtro ? 'Esse jogador ainda não jogou nenhuma partida.' : 'Nenhuma partida registrada ainda.') + '</div>';
     h += '<div class="legend">O placar grande mostra quantas partidas cada um venceu contra o outro. PTS no ranking geral = vitórias contra todos (1 ponto por vitória).</div>';
     return h + '</section>';
+  }
+
+  /* ---------- painel admin ----------
+     dono (BUMBLEBEE): limpa histórico, exclui perfis, reseta PIN, adiciona e tira admins.
+     admin: limpa histórico, exclui perfis e reseta PIN, mas não mexe no dono nem em outros admins.
+     O banco confere tudo de novo; a tela só esconde o que a pessoa não pode fazer. */
+  var ADM_MSG = {
+    sem_permissao: 'Você não tem permissão para isso.',
+    proprio_perfil: 'Isso não pode ser feito no seu próprio perfil.',
+    alvo_protegido: 'Esse perfil é de um admin. Só o dono mexe nele.',
+    em_partida: 'Esse jogador está numa partida ao vivo. Espere a partida acabar.',
+    nao_encontrado: 'Jogador não encontrado. A lista foi atualizada.',
+    sem_pin: 'Esse jogador ainda não tem PIN. Ele precisa criar o perfil antes de virar admin.'
+  };
+
+  var admLoading = false;
+  function loadAdmin() {
+    if (admLoading || !st.me || !st.me.papel) return Promise.resolve();
+    admLoading = true;
+    return rpc('admin_painel', { p_token: loadToken() }).then(function (r) {
+      admLoading = false;
+      if (r && r.ok) {
+        st.adm = r;
+        if (st.admSel && !r.jogadores.some(function (j) { return j.id === st.admSel; })) st.admSel = null;
+        render();
+      }
+    }).catch(function (err) {
+      admLoading = false;
+      admFail(err);
+    });
+  }
+
+  function admFail(err) {
+    if (err.code === 'sem_sessao') { logout(); return; }
+    if (err.code === 'sem_permissao') {
+      // perdeu o acesso de admin enquanto estava no painel
+      set({ tab: 'perfil', adm: null, admBusy: false, admArm: '' });
+      checkSession();
+      return;
+    }
+    set({ admBusy: false, admArm: '', admMsg: '',
+          admErr: ADM_MSG[err.code] || 'Não deu certo. Confira a internet e tente de novo.' });
+    loadAdmin();
+  }
+
+  function admRun(fn, args, okMsg) {
+    if (st.admBusy) return;
+    args.p_token = loadToken();
+    set({ admBusy: true, admErr: '', admMsg: '', admArm: '' });
+    rpc(fn, args).then(function () {
+      st.admBusy = false;
+      st.admMsg = okMsg;
+      refresh();
+      loadAdmin();
+      render();
+    }).catch(admFail);
+  }
+
+  // o que quem está logado pode fazer com este jogador
+  function admCan(j) {
+    var eu = st.me, souDono = eu.papel === 'dono';
+    var protegido = j.id === eu.id || j.papel === 'dono' || (j.papel === 'admin' && !souDono);
+    return {
+      apagar: j.partidas > 0,
+      pin: !protegido && (j.tem_pin || j.bloqueado),
+      excluir: !protegido,
+      admin: souDono && j.id !== eu.id && j.papel !== 'dono' && (j.papel === 'admin' || j.tem_pin)
+    };
+  }
+
+  function admBtn(acao, id, label, warn) {
+    var key = acao + ':' + id;
+    var armed = warn && st.admArm === key;
+    return '<button class="btn ghost' + (armed ? ' warn' : '') + '" type="button" data-act="admDo" data-v="' + key + '"' +
+      (st.admBusy ? ' disabled' : '') + '>' + (armed ? 'CONFIRMAR?' : label) + '</button>';
+  }
+
+  function viewAdmin() {
+    var adm = st.adm, souDono = st.me.papel === 'dono';
+    var h = '<section>';
+    h += '<div class="row adm-top"><button class="btn ghost" type="button" data-act="tab" data-v="perfil">VOLTAR</button>' +
+      '<div class="lbl">PAINEL ADMIN · ' + (souDono ? 'DONO' : 'ADMIN') + '</div></div>';
+    if (st.admErr) h += '<div class="err" role="alert">' + esc(st.admErr) + '</div>';
+    if (st.admMsg) h += '<div class="ok-msg" role="status">' + esc(st.admMsg) + '</div>';
+    if (!adm) return h + '<div class="note dim blink">Carregando painel...</div></section>';
+
+    h += '<div class="lbl">JOGADORES · ' + adm.jogadores.length + '</div><div class="adm-list">';
+    adm.jogadores.forEach(function (j) {
+      var open = st.admSel === j.id, can = admCan(j);
+      var tags = '';
+      if (j.papel === 'dono') tags += '<span class="tag-s dono">DONO</span>';
+      else if (j.papel === 'admin') tags += '<span class="tag-s admin">ADMIN</span>';
+      if (j.id === st.me.id) tags += '<span class="tag-s">VOCÊ</span>';
+      if (!j.tem_pin) tags += '<span class="tag-s">SEM PIN</span>';
+      if (j.bloqueado) tags += '<span class="tag-s alert">BLOQUEADO</span>';
+      h += '<div class="box adm-item' + (open ? ' open' : '') + '">' +
+        '<button class="adm-head" type="button" data-act="admSel" data-v="' + j.id + '" aria-expanded="' + open + '">' +
+          '<span class="nm">' + esc(j.nome) + '</span><span class="adm-tags">' + tags + '</span>' +
+          '<span class="cnt">' + j.partidas + ' partida' + (j.partidas === 1 ? '' : 's') + '</span>' +
+          '<span class="adm-caret" aria-hidden="true">' + (open ? '−' : '+') + '</span></button>';
+      if (open) {
+        var acts = '';
+        if (can.apagar) acts += admBtn('limpar', j.id, 'APAGAR PARTIDAS', true);
+        if (can.pin) acts += admBtn('pin', j.id, j.bloqueado ? 'DESBLOQUEAR / RESETAR PIN' : 'RESETAR PIN', true);
+        if (can.admin) acts += j.papel === 'admin' ? admBtn('tirarAdmin', j.id, 'TIRAR ADMIN', true) : admBtn('darAdmin', j.id, 'TORNAR ADMIN', false);
+        if (can.excluir) acts += admBtn('excluir', j.id, 'EXCLUIR PERFIL', true);
+        h += acts ? '<div class="row center adm-actions">' + acts + '</div>'
+          : '<div class="note dim adm-actions">' + (j.papel === 'dono' ? 'Perfil do dono: ninguém mexe nele.' : j.id === st.me.id ? 'Seu perfil: nada a fazer aqui.' : 'Perfil de admin: só o dono mexe nele.') + '</div>';
+        if (souDono && j.papel !== 'admin' && j.papel !== 'dono' && j.id !== st.me.id && !j.tem_pin) {
+          h += '<div class="legend adm-actions">Para virar admin, ele precisa ter perfil com PIN.</div>';
+        }
+      }
+      h += '</div>';
+    });
+    if (!adm.jogadores.length) h += '<div class="note dim">Nenhum jogador cadastrado.</div>';
+    h += '</div>';
+
+    h += '<div class="box adm-danger"><div class="lbl">HISTÓRICO GERAL</div>' +
+      '<div class="note">' + adm.partidas + ' partida' + (adm.partidas === 1 ? '' : 's') + ' registrada' + (adm.partidas === 1 ? '' : 's') + '. Apagar zera o ranking e o histórico de todo mundo.</div>' +
+      (adm.partidas ? admBtn('limparTudo', 0, 'APAGAR TODO O HISTÓRICO', true) : '') + '</div>';
+
+    h += '<div class="legend">Toque num jogador para ver as ações. APAGAR PARTIDAS tira do histórico as partidas dele. ' +
+      'RESETAR PIN desconecta a pessoa; ela cria um PIN novo em "Criar perfil" com o mesmo apelido. ' +
+      'EXCLUIR PERFIL tira a pessoa da lista e do ranking; as partidas dela ficam no histórico. ' +
+      (souDono ? 'Só você adiciona e tira admins. Admins não mexem no seu perfil nem no de outros admins.' : 'Só o dono adiciona e tira admins.') + '</div>';
+    return h + '</section>';
+  }
+
+  function admDo(v) {
+    var parts = v.split(':'), acao = parts[0], id = Number(parts[1]);
+    var j = st.adm && st.adm.jogadores.filter(function (x) { return x.id === id; })[0];
+    var nome = j ? j.nome : '';
+    var confirmar = acao !== 'darAdmin';
+    if (confirmar && st.admArm !== v) { set({ admArm: v, admErr: '', admMsg: '' }); return; }
+    switch (acao) {
+      case 'limpar': admRun('admin_limpar_historico', { p_id: id }, 'Partidas de ' + nome + ' apagadas.'); break;
+      case 'limparTudo': admRun('admin_limpar_historico', { p_id: null }, 'Histórico apagado.'); break;
+      case 'pin': admRun('admin_resetar_acesso', { p_id: id }, 'PIN de ' + nome + ' resetado. Ele cria um novo em "Criar perfil".'); break;
+      case 'excluir': admRun('admin_excluir_perfil', { p_id: id }, 'Perfil de ' + nome + ' excluído.'); break;
+      case 'darAdmin': admRun('admin_definir_admin', { p_id: id, p_admin: true }, nome + ' agora é admin.'); break;
+      case 'tirarAdmin': admRun('admin_definir_admin', { p_id: id, p_admin: false }, nome + ' não é mais admin.'); break;
+    }
   }
 
   function viewRanking() {
@@ -829,6 +988,7 @@
       if (st.tab === 'ranking') body = viewRanking();
       else if (st.tab === 'historico') body = viewHistorico();
       else if (st.tab === 'perfil') body = viewPerfil();
+      else if (st.tab === 'admin') body = st.me.papel ? viewAdmin() : viewPerfil();
       else body = (st.playing || st.live) ? viewBoard() : viewSetup();
     }
     // a tela se atualiza sozinha; quem está digitando não perde o texto nem o cursor
@@ -899,7 +1059,17 @@
 
     switch (act) {
       case 'tab':
-        set({ tab: v, quitArm: false, renaming: false });
+        set({ tab: v, quitArm: false, renaming: false, admArm: '' });
+        break;
+      case 'admOpen':
+        set({ tab: 'admin', admErr: '', admMsg: '', admArm: '', admSel: null });
+        loadAdmin();
+        break;
+      case 'admSel':
+        set({ admSel: st.admSel === Number(v) ? null : Number(v), admArm: '', admErr: '', admMsg: '' });
+        break;
+      case 'admDo':
+        admDo(v);
         break;
       case 'onbNext': set({ onb: st.onb + 1 }); focusNext(); break;
       case 'onbPrev': set({ onb: Math.max(0, st.onb - 1) }); focusNext(); break;
