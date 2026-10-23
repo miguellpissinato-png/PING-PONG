@@ -1,5 +1,6 @@
-/* Placar Disputa Elsys — perfis, placar, ranking, histórico de confrontos e partida ao vivo.
-   Cada pessoa entra com o próprio perfil (apelido + PIN de 4 números).
+/* Placar Disputa Elsys — placar, ranking, histórico de confrontos, partida ao vivo e jogo rápido.
+   Ninguém precisa de senha para jogar; só os admins entram com apelido + PIN.
+   Jogo rápido: em vez de marcar ponto a ponto, escolhe os dois jogadores e quem venceu.
    Jogadores, partidas e a partida em andamento ficam num banco Supabase compartilhado.
    Só existe uma partida ao vivo por vez: quem a iniciou marca os pontos e todo mundo
    que abre o site acompanha o mesmo placar em tempo real. */
@@ -17,9 +18,12 @@
   var STALE_MS = 20 * 60 * 1000;                // partida sem ponto há 20 min pode ser liberada
   var HEARTBEAT_MS = 4 * 60 * 1000;             // quem marca avisa o banco que a partida segue viva
   var DOUBLE_TAP_MS = 320;                      // dois toques no mesmo placar dentro deste tempo tiram 1 ponto
-  var TUTORIAL_KEY = 'disputa-elsys-tutorial-v2'; // este aparelho já viu o tutorial
+  var TUTORIAL_KEY = 'disputa-elsys-tutorial-v3'; // este aparelho já viu o tutorial (com o jogo rápido)
+  var TUTORIAL_OLD = 'disputa-elsys-tutorial-v2'; // tutorial antigo: quem já viu recebe só a novidade
   var EU_KEY = 'disputa-elsys-eu';              // jogador que a pessoa marcou como "este sou eu" neste aparelho
   var REGRA_KEY = 'disputa-elsys-regras';       // últimas regras escolhidas neste aparelho
+  var MODO_KEY = 'disputa-elsys-modo';          // último tipo de partida usado neste aparelho: 'pontos' ou 'rapido'
+  var UNDO_MS = 2 * 60 * 1000;                  // jogo rápido registrado pode ser desfeito neste prazo (no aparelho que registrou)
 
   var st = {
     tab: 'partida',
@@ -33,6 +37,12 @@
     jog: null,           // jogador aberto na aba Jogadores
     novo: false, novoNome: '', novoErr: '', histFiltro: '',
     picked: [], firstPick: 1, startErr: '',
+    // tipo de partida: 'pontos' (marcada ponto a ponto, ao vivo) ou 'rapido' (só escolhe quem venceu)
+    modo: 'pontos', vencedor: 0,
+    rapidoFeito: null,   // { id, chave, winner, loser, until } — jogo rápido que este aparelho acabou de registrar
+    rapidoArm: false,    // DESFAZER do jogo rápido pedindo confirmação
+    rankMsg: null,       // { text, until } — aviso curto no topo do ranking
+    onbNovo: false,      // tutorial aberto só para mostrar a novidade (jogo rápido)
     // regras da próxima partida (escolhidas antes de INICIAR; o aparelho lembra as últimas usadas)
     regra: null, regraTxt: null, regraAberta: false,
     live: null,          // partida ao vivo vinda do banco (ou null)
@@ -160,6 +170,20 @@
   function placar(m) {
     return regraDe(m).jogos === 1 ? [m.pontos_a, m.pontos_b] : [m.jogos_a, m.jogos_b];
   }
+  // como a vitória aparece nas frases: "por 3 x 1" ou, no jogo rápido (sem pontos), "no jogo rápido"
+  function comoVenceu(m) {
+    if (m.rapido) return 'no jogo rápido';
+    var pl = placar(m), aWon = m.jogos_a > m.jogos_b;
+    return 'por ' + (aWon ? pl[0] + ' x ' + pl[1] : pl[1] + ' x ' + pl[0]);
+  }
+
+  /* Tipo de partida: COM PONTOS (marcada ponto a ponto) ou JOGO RÁPIDO (só o vencedor). O aparelho lembra o último. */
+  function loadModo() {
+    try { return localStorage.getItem(MODO_KEY) === 'rapido' ? 'rapido' : 'pontos'; } catch (e) { return 'pontos'; }
+  }
+  function saveModo(m) {
+    try { localStorage.setItem(MODO_KEY, m); } catch (e) {}
+  }
 
   /* Login de admin guardado neste aparelho. Só vale para quem é dono ou admin. */
   function checkSession() {
@@ -241,7 +265,7 @@
       if (!(r && r.ok)) { set({ novoErr: AUTH_MSG[r && r.erro] || 'Não deu certo. Tente de novo.' }); return; }
       set({ novo: false, novoNome: '', novoErr: '' });
       refresh().then(function () {
-        if (!st.live && !st.playing && st.picked.length < 2 && st.picked.indexOf(r.id) < 0) set({ picked: st.picked.concat([r.id]) });
+        if (!st.live && !st.playing && st.picked.length < 2 && st.picked.indexOf(r.id) < 0) set({ picked: st.picked.concat([r.id]), vencedor: 0 });
       });
     }).catch(function () {
       set({ busy: false, novoErr: 'Sem conexão. Confira a internet e tente de novo.' });
@@ -266,7 +290,7 @@
   function refresh() {
     return Promise.all([
       api('jogadores?select=id,nome,ativo&order=nome.asc'),
-      api('partidas?select=id,jogador_a,jogador_b,jogos_a,jogos_b,pontos_a,pontos_b,regra_pontos,regra_vantagem,regra_direto,regra_jogos,criado_em&order=criado_em.desc&limit=5000')
+      api('partidas?select=id,jogador_a,jogador_b,jogos_a,jogos_b,pontos_a,pontos_b,regra_pontos,regra_vantagem,regra_direto,regra_jogos,rapido,criado_em&order=criado_em.desc&limit=5000')
     ]).then(function (res) {
       var snap = JSON.stringify(res);
       var wasErr = st.netErr;
@@ -280,6 +304,10 @@
       });
       st.names = names; st.players = players; st.matches = res[1];
       noticeNewMatch(res[1]);
+      // partida desfeita (jogo rápido) ou apagada: tira o destaque e o DESFAZER dela
+      var existe = {}; res[1].forEach(function (m) { existe[m.id] = true; });
+      if (st.winFlash && !existe[st.winFlash.match]) st.winFlash = null;
+      if (st.rapidoFeito && !existe[st.rapidoFeito.id]) { st.rapidoFeito = null; st.rapidoArm = false; }
       st.picked = st.picked.filter(function (id) { return active[id]; });
       if (st.delArm && !active[st.delArm]) st.delArm = null;
       if (st.tab === 'admin') loadAdmin();
@@ -302,9 +330,9 @@
     fresh.forEach(function (m) { st.seenMatches[m.id] = true; });
     if (!fresh.length) return;
     var m = fresh[0]; // mais recente primeiro
-    var aWon = m.jogos_a > m.jogos_b, pl = placar(m);
+    var aWon = m.jogos_a > m.jogos_b;
     st.winFlash = { match: m.id, winner: aWon ? m.jogador_a : m.jogador_b, loser: aWon ? m.jogador_b : m.jogador_a,
-                    score: aWon ? pl[0] + ' x ' + pl[1] : pl[1] + ' x ' + pl[0], until: Date.now() + FLASH_MS };
+                    como: comoVenceu(m), until: Date.now() + FLASH_MS };
     if (st.tab === 'partida' && !st.playing) st.tab = 'ranking';
     setTimeout(function () { if (st.winFlash && Date.now() >= st.winFlash.until) { st.winFlash = null; render(); } }, FLASH_MS + 50);
   }
@@ -488,6 +516,68 @@
     });
   }
 
+  /* ---------- jogo rápido ----------
+     Sem marcar pontos: escolhe os dois jogadores, toca no lado de quem venceu e registra.
+     A vitória entra direto no ranking. Este aparelho pode desfazer o registro por 2 minutos. */
+  var QUICK_MSG = {
+    em_partida: 'Um desses jogadores está na partida ao vivo. Espere ela acabar.',
+    jogador_invalido: 'Um dos jogadores saiu da lista. Escolha de novo.',
+    repetida: 'Essa vitória acabou de ser registrada. Confira no ranking.',
+    vencedor_invalido: 'Toque no lado da mesa de quem venceu.'
+  };
+  function registerQuick() {
+    if (st.busy || st.picked.length !== 2) return;
+    if (st.vencedor !== 1 && st.vencedor !== 2) { set({ startErr: QUICK_MSG.vencedor_invalido }); return; }
+    var a = st.picked[0], b = st.picked[1], v = st.vencedor, chave = newKey();
+    set({ busy: true, startErr: '' });
+    rpc('registrar_jogo_rapido', { p_jogador_a: a, p_jogador_b: b, p_vencedor: v, p_chave: chave })
+      .then(function (id) {
+        st.busy = false;
+        st.rapidoFeito = { id: Number(id), chave: chave, a: a, b: b, winner: v === 1 ? a : b, loser: v === 1 ? b : a, until: Date.now() + UNDO_MS };
+        st.rapidoArm = false;
+        setTimeout(function () {
+          if (st.rapidoFeito && Date.now() >= st.rapidoFeito.until) { st.rapidoFeito = null; st.rapidoArm = false; render(); }
+        }, UNDO_MS + 100);
+        set({ picked: [], vencedor: 0, firstPick: 1, novo: false, tab: 'ranking' });
+        view.scrollTop = 0;
+        refresh();
+      })
+      .catch(function (err) {
+        var faltaNoBanco = err.status === 404 && err.body && err.body.code === 'PGRST202';
+        set({ busy: false, startErr: faltaNoBanco ? 'O jogo rápido ainda não está ativo no banco.'
+          : (QUICK_MSG[err.code] || 'Não deu para registrar. Confira a internet e tente de novo.') });
+        refresh(); refreshLive();
+      });
+  }
+
+  function undoQuick() {
+    var f = st.rapidoFeito;
+    if (st.busy || !f) return;
+    if (!st.rapidoArm) { set({ rapidoArm: true }); return; }
+    set({ busy: true, rapidoArm: false });
+    rpc('desfazer_jogo_rapido', { p_id: f.id, p_chave: f.chave }).then(function () {
+      st.busy = false;
+      if (st.winFlash && st.winFlash.match === f.id) st.winFlash = null;
+      // volta para a mesa com os mesmos jogadores, para registrar de novo se foi engano
+      var ativos = st.players.filter(function (p) { return p.id === f.a || p.id === f.b; }).length === 2;
+      set({ rapidoFeito: null, tab: 'partida', modo: 'rapido', vencedor: 0,
+            picked: ativos && !st.live ? [f.a, f.b] : [], startErr: '' });
+      refresh();
+    }).catch(function (err) {
+      st.busy = false;
+      if (err.code === 'tempo_esgotado' || err.code === 'sem_permissao') st.rapidoFeito = null;
+      alertRanking(err.code === 'tempo_esgotado' ? 'Passaram os 2 minutos: agora só um admin apaga essa partida.'
+        : err.code === 'sem_permissao' ? 'Essa partida não pode mais ser desfeita por aqui. Peça a um admin.'
+        : 'Sem conexão. Confira a internet e toque de novo em DESFAZER.');
+    });
+  }
+  // aviso curto no topo do ranking
+  function alertRanking(msg) {
+    st.rankMsg = { text: msg, until: Date.now() + 8000 };
+    render();
+    setTimeout(function () { if (st.rankMsg && Date.now() >= st.rankMsg.until) { st.rankMsg = null; render(); } }, 8100);
+  }
+
   /* ---------- telas ---------- */
   function liveBadge() {
     if (!st.live) return '';
@@ -512,27 +602,47 @@
      O topo é a mesa da partida, vazia. Quem é escolhido aparece no seu lado da mesa
      (1P em cima, com a raquete vermelha; 2P embaixo, com a preta). Com os dois escolhidos,
      tocar num lado da mesa define quem saca primeiro: a bolinha vai para aquele lado. */
+  /* Com pontos, tocar num lado escolhe quem saca primeiro. No jogo rápido, escolhe quem venceu. */
   function prepSide(n, id, next) {
-    var pronto = st.picked.length === 2;
-    var saca = pronto && st.firstPick === n;
+    var pronto = st.picked.length === 2, rapido = st.modo === 'rapido';
+    var marcado = pronto && (rapido ? st.vencedor === n : st.firstPick === n);
     var tag = '<span class="prep-tag p' + n + '">' + n + 'P</span>';
-    var ball = saca ? '<svg class="bola-saque bounce" viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true">' +
+    var ball = marcado && !rapido ? '<svg class="bola-saque bounce" viewBox="0 0 6 6" shape-rendering="crispEdges" aria-hidden="true">' +
       '<path fill="#f4f7ff" d="M1 0h4v1h-4zM0 1h6v4h-6zM1 5h4v1h-4z"/><path fill="#b9c6f2" d="M4 4h1v1h-1zM1 4h1v1h-1z"/></svg>' : '';
     if (!id) {
       return '<div class="prep-lado vazio' + (next ? ' proximo' : '') + '"><div class="vaga">' + tag +
         '<span class="' + (next ? 'blink ' : '') + 'prep-msg">' + (next ? 'TOQUE NUM NOME' : '---') + '</span></div></div>';
     }
+    var dica = rapido ? 'toque se venceu' : 'toque para sacar';
     var inner = tag + '<span class="prep-nm">' + esc(nameOf(id)) + '</span>' +
-      (saca ? serveTag('SACA PRIMEIRO') : (pronto ? '<span class="prep-msg">toque para sacar</span>' : '')) + ball;
+      (marcado ? (rapido ? winTag() : serveTag('SACA PRIMEIRO')) : (pronto ? '<span class="prep-msg">' + dica + '</span>' : '')) + ball;
     if (!pronto) return '<div class="prep-lado">' + inner + '</div>';
-    return '<button class="prep-lado tap" type="button" data-act="fp" data-v="' + n + '" aria-pressed="' + saca + '"' +
-      ' aria-label="' + esc(nameOf(id)) + (saca ? ' saca primeiro' : ': toque para sacar primeiro') + '">' + inner + '</button>';
+    var cls = 'prep-lado tap' + (rapido ? ' escolhe-vencedor' : '') + (rapido && marcado ? ' venceu' : '') + (rapido && st.vencedor && !marcado ? ' perdeu' : '');
+    var label = esc(nameOf(id)) + (rapido ? (marcado ? ' venceu' : ': toque se venceu') : (marcado ? ' saca primeiro' : ': toque para sacar primeiro'));
+    return '<button class="' + cls + '" type="button" data-act="' + (rapido ? 'vence' : 'fp') + '" data-v="' + n + '" aria-pressed="' + marcado + '"' +
+      ' aria-label="' + label + '">' + inner + '</button>';
+  }
+
+  // selo verde do vencedor no jogo rápido, com um troféu em pixel
+  function winTag() {
+    return '<span class="win-chip"><svg viewBox="0 0 8 8" shape-rendering="crispEdges" aria-hidden="true">' +
+      '<path fill="#050a1c" d="M1 0h6v1h-6zM0 1h1v2h-1zM7 1h1v2h-1zM1 1h6v3h-6zM1 3h1v1h-1zM2 4h4v1h-4zM3 5h2v1h-2zM2 6h4v2h-4z"/></svg>VENCEU</span>';
+  }
+
+  // COM PONTOS ou JOGO RÁPIDO, no topo da aba Partida
+  function modoToggle() {
+    var rapido = st.modo === 'rapido';
+    function b(v, on, label) {
+      return '<button class="opt modo-opt' + (on ? ' on' : '') + '" type="button" data-act="modo" data-v="' + v + '" aria-pressed="' + on + '">' + label + '</button>';
+    }
+    return '<div class="row modo" role="group" aria-label="Tipo de partida">' + b('pontos', !rapido, 'COM PONTOS') + b('rapido', rapido, 'JOGO RÁPIDO') + '</div>';
   }
 
   function viewSetup() {
-    var p = st.picked;
+    var p = st.picked, rapido = st.modo === 'rapido';
     var h = '<section>';
-    h += '<div class="board mesa prep">' +
+    h += modoToggle();
+    h += '<div class="board mesa prep' + (rapido ? ' rapido' : '') + '">' +
       '<div class="mesa-linha" aria-hidden="true"></div>' +
       prepSide(1, p[0], p.length === 0) +
       '<div class="rede" aria-hidden="true"></div>' +
@@ -543,7 +653,10 @@
     if (!st.loaded) {
       h += '<div class="note dim blink">Carregando jogadores...</div>';
     } else if (st.players.length) {
-      h += '<div class="note prep-dica">' + (p.length === 2 ? 'Toque no lado da mesa de quem vai sacar primeiro.' : 'Toque em 2 jogadores. O primeiro vira o 1P.') + '</div>';
+      var dica = p.length < 2 ? 'Toque em 2 jogadores. O primeiro vira o 1P.'
+        : !rapido ? 'Toque no lado da mesa de quem vai sacar primeiro.'
+        : st.vencedor ? 'Confira e toque em REGISTRAR VITÓRIA.' : 'Toque no lado da mesa de quem venceu.';
+      h += '<div class="note prep-dica">' + dica + '</div>';
       h += '<div class="scroll roster">';
       st.players.forEach(function (pl) {
         var at = p.indexOf(pl.id);
@@ -563,6 +676,15 @@
         '<div class="note">Digite o apelido de quem vai jogar. Não precisa de senha.</div></div>' + novoForm(true);
     }
     h += '<div class="grow"></div>';
+    if (rapido) {
+      h += '<div class="box regras rapido-info"><span class="lbl">JOGO RÁPIDO</span>' +
+        '<div class="regras-resumo">SEM PLACAR · SÓ QUEM VENCEU · VALE 1 VITÓRIA NO RANKING</div></div>';
+      if (st.startErr) h += '<div class="err" role="alert">' + esc(st.startErr) + '</div>';
+      h += '<div class="legend">A vitória entra direto no ranking. Errou? Este aparelho pode desfazer por 2 minutos.</div>';
+      h += '<button class="btn go start" type="button" data-act="rapido"' + (p.length !== 2 || !st.vencedor || st.busy ? ' disabled' : '') + '>' +
+        (st.busy ? 'REGISTRANDO...' : 'REGISTRAR VITÓRIA') + '</button>';
+      return h + '</section>';
+    }
     h += regrasBox();
     if (st.startErr) h += '<div class="err" role="alert">' + esc(st.startErr) + '</div>';
     h += '<div class="legend">Ao iniciar, a partida fica ao vivo para todo mundo e só este aparelho marca os pontos.</div>';
@@ -733,15 +855,23 @@
 
   /* ---------- tutorial ----------
      Aparece uma vez em cada aparelho. Dá para abrir de novo na aba Jogadores, em COMO FUNCIONA. */
-  function tutorialSeen() {
-    try { return localStorage.getItem(TUTORIAL_KEY) === '1'; } catch (e) { return true; }
+  function tutorialSeen(key) {
+    try { return localStorage.getItem(key || TUTORIAL_KEY) === '1'; } catch (e) { return true; }
   }
+  /* Primeira vez no aparelho: tutorial inteiro. Quem já tinha visto o tutorial antigo vê só a novidade (jogo rápido). */
   function maybeTutorial() {
-    if (st.onb === null && !tutorialSeen()) st.onb = 0;
+    if (st.onb !== null || tutorialSeen()) return;
+    if (tutorialSeen(TUTORIAL_OLD)) { st.onb = stepIndex('rapido'); st.onbNovo = true; }
+    else st.onb = 0;
+  }
+  function stepIndex(id) {
+    var steps = tutorialSteps();
+    for (var i = 0; i < steps.length; i++) if (steps[i].id === id) return i;
+    return 0;
   }
   function closeTutorial() {
     try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch (e) {}
-    set({ onb: null });
+    set({ onb: null, onbNovo: false });
   }
 
   // desenhos do tutorial (pixel art + mini telas)
@@ -783,7 +913,16 @@
           '<div class="ob-chips"><span class="ob-chip on">RAIO <i>1P</i></span><span class="ob-chip on">TROVÃO <i>2P</i></span>' +
           '<span class="ob-chip">FAÍSCA</span><span class="ob-chip">COMETA</span></div>' +
           '<div class="ob-start">INICIAR' + obTap(1) + '</div></div>',
-        text: 'Na aba Partida, toque nos 2 jogadores, toque no lado da mesa de quem saca primeiro, confira as REGRAS DA PARTIDA e toque em INICIAR. Seu nome não está na lista? Toque em + NOVO JOGADOR: é só o apelido, sem senha.' },
+        text: 'Na aba Partida, deixe em COM PONTOS, toque nos 2 jogadores, toque no lado da mesa de quem saca primeiro, confira as REGRAS DA PARTIDA e toque em INICIAR. Seu nome não está na lista? Toque em + NOVO JOGADOR: é só o apelido, sem senha.' },
+      { id: 'rapido', title: 'JOGO RÁPIDO',
+        art: '<div class="ob-setup">' +
+          '<div class="ob-modo"><span>COM PONTOS</span><span class="on">JOGO RÁPIDO</span></div>' +
+          '<div class="ob-quick">' +
+            '<div class="ob-qside win"><span class="ob-qwin">VENCEU</span><span>RAIO</span>' + obTap(1) + '</div>' +
+            '<div class="ob-qnet"></div>' +
+            '<div class="ob-qside"><span>TROVÃO</span></div></div>' +
+          '<div class="ob-start">REGISTRAR VITÓRIA</div></div>',
+        text: 'Não quer marcar ponto a ponto? Na aba Partida, toque em JOGO RÁPIDO, escolha os 2 jogadores, toque no lado da mesa de quem venceu e em REGISTRAR VITÓRIA. A vitória vai direto para o ranking. Errou? Dá para desfazer por 2 minutos.' },
       { title: '1 TOQUE = PONTO',
         art: obBoard(obCard('1P', 'RAIO', '06', obTap(1) + '<span class="ob-fx plus">+1</span>'), obCard('2P', 'TROVÃO', '04')),
         text: 'Durante o jogo, toque uma vez no placar de quem fez o ponto. Aparece um +1 verde.' },
@@ -813,6 +952,20 @@
   function viewTutorial() {
     var steps = tutorialSteps();
     var i = Math.max(0, Math.min(st.onb, steps.length - 1)), stp = steps[i], last = i === steps.length - 1;
+    if (st.onbNovo) {
+      // quem já conhecia o placar vê só a novidade
+      return '<div class="ob-backdrop">' +
+        '<div class="box ob" role="dialog" aria-modal="true" aria-labelledby="obTitle">' +
+          '<div class="ob-top"><span class="lbl ob-novo blink">NOVIDADE NO PLACAR</span></div>' +
+          '<h2 id="obTitle" class="ob-title rgb glow">' + stp.title + '</h2>' +
+          '<div class="ob-art">' + stp.art + '</div>' +
+          '<p class="ob-text">' + stp.text + '</p>' +
+          '<div class="ob-nav">' +
+            '<button class="btn ghost" type="button" data-act="onbOpen">VER TUDO</button>' +
+            '<button class="btn go ob-next" type="button" data-act="onbDone">ENTENDI!</button>' +
+          '</div>' +
+        '</div></div>';
+    }
     var dots = steps.map(function (x, k) {
       return '<button class="ob-dot' + (k === i ? ' on' : '') + '" type="button" data-act="onbGo" data-v="' + k + '" aria-label="Passo ' + (k + 1) + '"' + (k === i ? ' aria-current="step"' : '') + '></button>';
     }).join('');
@@ -941,7 +1094,7 @@
       var myG = meA ? pl[0] : pl[1], opG = meA ? pl[1] : pl[0], opp = meA ? m.jogador_b : m.jogador_a;
       var won = meA ? m.jogos_a > m.jogos_b : m.jogos_b > m.jogos_a;
       h += '<div class="match-line"><span class="res ' + (won ? 'w' : 'l') + '">' + (won ? 'VENCEU' : 'PERDEU') + '</span>' +
-        '<span class="vt">' + myG + ' x ' + opG + ' contra ' + esc(nameOf(opp)) + '</span>' +
+        '<span class="vt">' + (m.rapido ? 'jogo rápido' : myG + ' x ' + opG) + ' contra ' + esc(nameOf(opp)) + '</span>' +
         '<span class="vt when">' + fmtWhen(m.criado_em) + '</span></div>';
     });
     if (!myMatches.length) h += '<div class="note dim">Nenhuma partida ainda.</div>';
@@ -1197,8 +1350,16 @@
     var h = '<section>';
     if (flash) {
       h += '<div class="win-news" role="status"><span class="plus blink">+1</span>' +
-        '<span>' + esc(nameOf(flash.winner)) + ' venceu ' + esc(nameOf(flash.loser)) + ' por ' + flash.score + '</span></div>';
+        '<span>' + esc(nameOf(flash.winner)) + ' venceu ' + esc(nameOf(flash.loser)) + ' ' + esc(flash.como) + '</span></div>';
     }
+    // jogo rápido que este aparelho acabou de registrar: dá para desfazer por 2 minutos
+    var feito = st.rapidoFeito && Date.now() < st.rapidoFeito.until ? st.rapidoFeito : null;
+    if (feito) {
+      h += '<div class="box desfazer-rapido"><span class="vt">Registrou a vitória errada? Desfaça e registre de novo.</span>' +
+        '<button class="btn ghost' + (st.rapidoArm ? ' warn' : '') + '" type="button" data-act="rapidoDesfazer"' + (st.busy ? ' disabled' : '') + '>' +
+        (st.busy ? 'DESFAZENDO...' : (st.rapidoArm ? 'CONFIRMAR?' : 'DESFAZER')) + '</button></div>';
+    }
+    if (st.rankMsg && Date.now() < st.rankMsg.until) h += '<div class="err" role="alert">' + esc(st.rankMsg.text) + '</div>';
     h += '<div class="rank-layout"><div class="stack">';
     h += '<div class="box rank-box">' +
       '<div class="rk head"><span>#</span><span>JOGADOR</span><span class="r">PTS</span><span class="r">J</span><span class="r">D</span><span class="r">SJ</span></div>';
@@ -1214,14 +1375,16 @@
     if (!st.loaded) h += '<div class="note dim blink" style="padding: var(--gap)">Carregando ranking...</div>';
     else if (!rows.length) h += '<div class="note dim" style="padding: var(--gap)">Cadastre jogadores para montar o ranking.</div>';
     h += '</div>';
-    h += '<div class="legend">PTS 1 ponto por vitória · J partidas · D derrotas · SJ saldo de jogos (desempate) · jogo único mostra os pontos; mais de um jogo, os jogos</div></div>';
+    h += '<div class="legend">PTS 1 ponto por vitória · J partidas · D derrotas · SJ saldo de jogos (desempate) · jogo único mostra os pontos; mais de um jogo, os jogos · jogo rápido conta só a vitória</div></div>';
     h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
     st.matches.slice(0, 5).forEach(function (m) {
       var aWon = m.jogos_a > m.jogos_b, pl = placar(m);
-      var line = aWon
-        ? nameOf(m.jogador_a) + '  ' + pl[0] + ' x ' + pl[1] + '  ' + nameOf(m.jogador_b)
-        : nameOf(m.jogador_b) + '  ' + pl[1] + ' x ' + pl[0] + '  ' + nameOf(m.jogador_a);
-      h += '<div class="note">' + esc(line) + '</div>';
+      var line = m.rapido
+        ? nameOf(aWon ? m.jogador_a : m.jogador_b) + ' venceu ' + nameOf(aWon ? m.jogador_b : m.jogador_a)
+        : aWon
+          ? nameOf(m.jogador_a) + '  ' + pl[0] + ' x ' + pl[1] + '  ' + nameOf(m.jogador_b)
+          : nameOf(m.jogador_b) + '  ' + pl[1] + ' x ' + pl[0] + '  ' + nameOf(m.jogador_a);
+      h += '<div class="note">' + esc(line) + (m.rapido ? ' <span class="rapido-tag">RÁPIDO</span>' : '') + '</div>';
     });
     if (st.loaded && !st.matches.length) h += '<div class="note dim">Nenhuma partida registrada.</div>';
     h += '</div></div><div class="grow"></div>';
@@ -1349,7 +1512,7 @@
       case 'onbPrev': set({ onb: Math.max(0, st.onb - 1) }); focusNext(); break;
       case 'onbGo': set({ onb: Number(v) }); break;
       case 'onbSkip': case 'onbDone': closeTutorial(); break;
-      case 'onbOpen': set({ onb: 0 }); break;
+      case 'onbOpen': set({ onb: 0, onbNovo: false }); focusNext(); break;
       case 'logout':
         logout();
         break;
@@ -1359,14 +1522,28 @@
         if (i >= 0) cur.splice(i, 1);
         else if (cur.length < 2) cur.push(id);
         else cur[1] = id;
-        set({ picked: cur, startErr: '' });
+        // mudou quem está na mesa: o vencedor escolhido antes não vale mais
+        set({ picked: cur, vencedor: 0, startErr: '' });
         break;
       }
       case 'fp':
         set({ firstPick: Number(v) });
         break;
+      case 'modo':
+        saveModo(v);
+        set({ modo: v, vencedor: 0, startErr: '', regraAberta: false });
+        break;
+      case 'vence':
+        set({ vencedor: st.vencedor === Number(v) ? 0 : Number(v), startErr: '' });
+        break;
       case 'start':
         startMatch();
+        break;
+      case 'rapido':
+        registerQuick();
+        break;
+      case 'rapidoDesfazer':
+        undoQuick();
         break;
       case 'rgAbrir': {
         var abrindo = !st.regraAberta;
@@ -1422,6 +1599,7 @@
     if (st.onb === null) return;
     var total = tutorialSteps().length;
     if (e.key === 'Escape') { e.preventDefault(); closeTutorial(); }
+    else if (st.onbNovo) return;
     else if (e.key === 'ArrowRight' && st.onb < total - 1) { e.preventDefault(); set({ onb: st.onb + 1 }); focusNext(); }
     else if (e.key === 'ArrowLeft' && st.onb > 0) { e.preventDefault(); set({ onb: st.onb - 1 }); focusNext(); }
   });
@@ -1505,6 +1683,7 @@
 
   st.eu = loadEu();
   st.regra = loadRegra(); st.regraTxt = regraTexto(st.regra);
+  st.modo = loadModo();
   maybeTutorial();
   render();
   checkSession();

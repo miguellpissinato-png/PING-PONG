@@ -7,6 +7,8 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
 - **Sem login para jogar:** o site abre direto na aba Partida. Ninguém precisa de senha: quem não está na lista toca em **+ NOVO JOGADOR** e digita o apelido.
 - **Jogadores:** a aba lista todo mundo. Tocar num nome mostra quantas partidas a pessoa jogou, venceu e perdeu, a posição no ranking, os confrontos contra cada adversário e as últimas partidas. **ESTE SOU EU** marca o seu nome neste aparelho (sem senha) e destaca você no ranking.
 - **Partida:** qualquer pessoa escolhe os dois jogadores, define quem saca no 1º ponto e toca em **INICIAR**. Um toque no placar do jogador marca ponto para ele; dois toques rápidos no mesmo placar tiram 1 ponto dele. DESFAZER PONTO também desfaz o último ponto. Mostra jogos ganhos (quando a partida tem mais de um jogo) e status (igualdade, ponto de jogo, ponto decisivo, vencedor).
+- **Dois tipos de partida:** no topo da aba Partida, **COM PONTOS** (marcada ponto a ponto, ao vivo, como sempre) ou **JOGO RÁPIDO** (só quem venceu). Cada aparelho lembra o último tipo usado.
+- **Jogo rápido:** escolha os 2 jogadores, toque no lado da mesa de quem venceu (aparece o selo verde VENCEU) e toque em **REGISTRAR VITÓRIA**. A vitória vai direto para o ranking e vale 1 ponto, como qualquer outra. Errou? No ranking aparece **DESFAZER** por 2 minutos, só no aparelho que registrou; ele volta para a mesa com os mesmos jogadores para registrar de novo. Depois disso, só um admin apaga. Nas listas, o jogo rápido aparece como `RAIO venceu TROVÃO` com a etiqueta RÁPIDO.
 - **Mesa de preparação:** antes de iniciar, o topo da aba Partida é a mesa vazia. Quem é escolhido aparece no seu lado (1P em cima com a raquete vermelha, 2P embaixo com a preta) e o lado que falta fica tracejado com TOQUE NUM NOME. Com os dois escolhidos, tocar num lado da mesa define quem saca primeiro, e a bolinha vai para lá.
 - **Mesa de jogo:** durante a partida, o placar é uma mesa de ping-pong vista de cima, com rede no meio, raquetes vermelha (1P) e preta (2P) e o selo amarelo SAQUE em quem saca. Em pé, o 1P fica em cima e o 2P embaixo, de frente para ele; deitado, a mesa gira e os dois ficam lado a lado. Cada metade da mesa é a área de toque do jogador.
 - **Regras de cada partida:** nada é fixo no sistema. Antes de INICIAR, o bloco **REGRAS DA PARTIDA** mostra as regras e o botão **MUDAR** abre:
@@ -20,7 +22,7 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
 - **Placar das partidas salvas:** jogo único mostra os pontos (ex.: `3 x 0`); partida de mais de um jogo mostra os jogos (ex.: `2 x 1`).
 - **Histórico:** todos os confrontos entre duplas, no formato `JÚLIO 3 x 1 FÁBIO` (quantas partidas cada um venceu contra o outro), com o total de pontos de cada um no ranking geral. Dá para filtrar por jogador.
 
-- **Tutorial:** na primeira vez que o site abre num aparelho, aparece um passo a passo ilustrado com as abas, como iniciar partida, 1 toque e 2 toques, partida ao vivo, ranking, histórico e jogadores. Dá para pular e rever depois em **COMO FUNCIONA**, na aba Jogadores.
+- **Tutorial:** na primeira vez que o site abre num aparelho, aparece um passo a passo ilustrado com as abas, como iniciar partida, jogo rápido, 1 toque e 2 toques, partida ao vivo, ranking, histórico e jogadores. Dá para pular e rever depois em **COMO FUNCIONA**, na aba Jogadores. Quem já tinha visto o tutorial antes do jogo rápido vê uma vez só o aviso **NOVIDADE NO PLACAR**, com **VER TUDO** para o tutorial inteiro.
 
 ## Como usar
 
@@ -78,7 +80,7 @@ Jogadores, partidas e a partida ao vivo ficam num banco [Supabase](https://supab
 
 - **Cadastrar jogador** e **registrar partida** ficam salvos para todos.
 - A **partida ao vivo** fica na tabela `partida_ao_vivo`. Só o aparelho que iniciou consegue mudar o placar, pelas funções do banco (`iniciar_partida_regras`, `atualizar_partida`, `encerrar_partida`, `liberar_partida_parada`). A antiga `iniciar_partida`, sem regras, continua existindo e inicia com 11 pontos, vantagem de 2 e melhor de 3. O SQL das regras está em `supabase/regras_da_partida.sql`.
-- Pelo site, só admins apagam partidas, mudam apelidos ou excluem jogadores (veja **Painel admin**). Qualquer pessoa cadastra jogador e inicia partida; ninguém registra partidas fora da partida ao vivo.
+- Pelo site, só admins apagam partidas, mudam apelidos ou excluem jogadores (veja **Painel admin**). Qualquer pessoa cadastra jogador, inicia partida e registra jogo rápido (o jogo rápido não aceita quem está na partida ao vivo).
 
 Só admins têm PIN. Ele é guardado só como hash (bcrypt) numa tabela que o site não consegue ler, e 5 PINs errados seguidos bloqueiam o acesso por 5 minutos. Quem não é admin não entra na área admin, mesmo com um PIN antigo.
 
@@ -87,14 +89,15 @@ Só admins têm PIN. Ele é guardado só como hash (bcrypt) numa tabela que o si
 | Tabela | O que guarda |
 | --- | --- |
 | `jogadores` | `id`, `nome` (até 10 letras, maiúsculas, único entre os ativos), `ativo`, `criado_em` |
-| `partidas` | `jogador_a`, `jogador_b`, `jogos_a`, `jogos_b` (quem chegou a `regra_jogos` venceu), `pontos_a`, `pontos_b`, regras usadas (`regra_pontos`, `regra_vantagem`, `regra_direto`, `regra_jogos`), `criado_em` |
+| `partidas` | `jogador_a`, `jogador_b`, `jogos_a`, `jogos_b` (quem chegou a `regra_jogos` venceu), `pontos_a`, `pontos_b`, regras usadas (`regra_pontos`, `regra_vantagem`, `regra_direto`, `regra_jogos`), `rapido` (jogo rápido: jogo único 1 x 0, sem pontos), `criado_em` |
+| `partidas_rapido_chave` | Hash da chave do aparelho que registrou cada jogo rápido, para desfazer em 2 minutos. Ninguém lê pelo site |
 | `partida_ao_vivo` | Linha única com a partida em andamento: jogadores, regras da partida, `pontos` (quem fez cada ponto do jogo atual), jogos e pontos já fechados, `ativa` |
 | `partida_ao_vivo_dono` | Chave secreta do aparelho que iniciou. Ninguém lê pelo site |
 | `jogadores_acesso` | Hash do PIN de cada admin e tentativas erradas. Ninguém lê pelo site |
 | `sessoes` | Logins abertos (hash do token guardado no aparelho). Ninguém lê pelo site |
 | `admins` | Quem é admin e quem é o dono (BUMBLEBEE). Ninguém lê pelo site |
 
-Funções sem login: `criar_jogador` (só o apelido), `iniciar_partida_regras` e as da partida ao vivo. Login de admin: `entrar`, `meu_perfil` (devolve o papel: dono, admin ou nenhum) e `sair`.
+Funções sem login: `criar_jogador` (só o apelido), `iniciar_partida_regras`, as da partida ao vivo e as do jogo rápido (`registrar_jogo_rapido`, `desfazer_jogo_rapido`; SQL em `supabase/jogo_rapido.sql`). Login de admin: `entrar`, `meu_perfil` (devolve o papel: dono, admin ou nenhum) e `sair`.
 
 Funções do painel admin: `admin_painel`, `admin_limpar_historico`, `admin_renomear`, `admin_excluir_perfil`, `admin_definir_admin` e `admin_definir_pin` (as duas últimas só do dono). O SQL fica em `supabase/`.
 
