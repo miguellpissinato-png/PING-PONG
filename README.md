@@ -5,7 +5,7 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
 ## O que ele faz
 
 - **Sem login para jogar:** o site abre direto na aba Partida. Ninguém precisa de senha: quem não está na lista toca em **+ NOVO JOGADOR** e digita o apelido.
-- **Jogadores:** a aba lista todo mundo. Tocar num nome mostra quantas partidas a pessoa jogou, venceu e perdeu, a posição no ranking, os confrontos contra cada adversário e as últimas partidas. **ESTE SOU EU** marca o seu nome neste aparelho (sem senha) e destaca você no ranking.
+- **Jogadores:** a aba lista todo mundo. Tocar num nome mostra quantas partidas a pessoa jogou, venceu e perdeu, a posição no ranking, os confrontos contra cada adversário e as últimas partidas. **ESTE SOU EU** marca o seu nome neste aparelho (sem senha) e destaca você no ranking. **MUDAR NOME** troca o apelido de qualquer jogador, sem senha (1 a 10 letras, sem repetir outro nome da lista); as partidas e vitórias continuam com ele. O nome de admins e do dono só muda pela área admin, porque é o login deles.
 - **Partida:** qualquer pessoa escolhe os dois jogadores, define quem saca no 1º ponto e toca em **INICIAR**. Um toque no placar do jogador marca ponto para ele; dois toques rápidos no mesmo placar tiram 1 ponto dele. DESFAZER PONTO também desfaz o último ponto. Mostra jogos ganhos (quando a partida tem mais de um jogo) e status (igualdade, ponto de jogo, ponto decisivo, vencedor).
 - **Dois tipos de partida:** no topo da aba Partida, **COM PONTOS** (marcada ponto a ponto, ao vivo, como sempre) ou **JOGO RÁPIDO** (só quem venceu). Cada aparelho lembra o último tipo usado.
 - **Jogo rápido:** escolha os 2 jogadores, toque no lado da mesa de quem venceu (aparece o selo verde VENCEU) e toque em **REGISTRAR VITÓRIA**. A vitória vai direto para o ranking e vale 1 ponto, como qualquer outra. Errou? No ranking aparece **DESFAZER** por 2 minutos, só no aparelho que registrou; ele volta para a mesa com os mesmos jogadores para registrar de novo. Depois disso, só um admin apaga. Nas listas, o jogo rápido aparece como `RAIO venceu TROVÃO` com a etiqueta RÁPIDO.
@@ -97,7 +97,7 @@ Só admins têm PIN. Ele é guardado só como hash (bcrypt) numa tabela que o si
 | `sessoes` | Logins abertos (hash do token guardado no aparelho). Ninguém lê pelo site |
 | `admins` | Quem é admin e quem é o dono (BUMBLEBEE). Ninguém lê pelo site |
 
-Funções sem login: `criar_jogador` (só o apelido), `iniciar_partida_regras`, as da partida ao vivo e as do jogo rápido (`registrar_jogo_rapido`, `desfazer_jogo_rapido`; SQL em `supabase/jogo_rapido.sql`). Login de admin: `entrar`, `meu_perfil` (devolve o papel: dono, admin ou nenhum) e `sair`.
+Funções sem login: `criar_jogador` (só o apelido), `renomear_jogador` (SQL em `supabase/mudar_apelido.sql`), `iniciar_partida_regras`, as da partida ao vivo e as do jogo rápido (`registrar_jogo_rapido`, `desfazer_jogo_rapido`; SQL em `supabase/jogo_rapido.sql`). Login de admin: `entrar`, `meu_perfil` (devolve o papel: dono, admin ou nenhum) e `sair`.
 
 Funções do painel admin: `admin_painel`, `admin_limpar_historico`, `admin_renomear`, `admin_excluir_perfil`, `admin_definir_admin` e `admin_definir_pin` (as duas últimas só do dono). O SQL fica em `supabase/`.
 
