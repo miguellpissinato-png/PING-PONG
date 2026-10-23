@@ -1343,6 +1343,27 @@
     }
   }
 
+  /* ---------- ranking em pódio ---------- */
+  function vitTxt(n) { return n + (n === 1 ? ' vitória' : ' vitórias'); }
+  var CROWN = '<svg class="pod-coroa" viewBox="0 0 9 6" shape-rendering="crispEdges" aria-hidden="true">' +
+    '<path fill="#ffd84a" d="M0 0h1v1h-1zM4 0h1v1h-1zM8 0h1v1h-1zM0 1h2v1h-2zM3 1h3v1h-3zM7 1h2v1h-2zM0 2h9v2h-9z"/>' +
+    '<path fill="#c79a12" d="M0 4h9v2h-9z"/><path fill="#ff3b47" d="M4 4h1v1h-1z"/></svg>';
+  // um degrau do pódio (n = 1, 2 ou 3); sem jogador, o degrau fica vazio
+  function degrau(r, n, flash) {
+    if (!r) {
+      return '<div class="pod pod' + n + ' vazio" role="listitem" aria-label="' + n + 'º lugar vago"><span class="pod-nome">---</span>' +
+        '<span class="pod-num">0</span><span class="vt pod-sub"><span>lugar</span><span>vago</span></span><div class="pod-bloco">' + n + '</div></div>';
+    }
+    var won = flash && flash.winner === r.id, isMe = st.eu === r.id;
+    return '<div class="pod pod' + n + (won ? ' won' : '') + '" role="listitem" aria-label="' + n + 'º lugar: ' + esc(r.name) + ', ' + vitTxt(r.rank) + ' em ' + r.j + ' partidas">' +
+      (n === 1 ? CROWN : '') +
+      '<span class="pod-nome">' + esc(r.name) + '</span>' +
+      (isMe ? '<span class="eu-mini">VOCÊ</span>' : '') +
+      '<span class="pod-num">' + (won ? '<span class="plus blink">+1</span>' : '') + r.rank + '</span>' +
+      '<span class="vt pod-sub"><span>' + (r.rank === 1 ? 'vitória' : 'vitórias') + '</span><span>em ' + r.j + '</span></span>' +
+      '<div class="pod-bloco">' + n + '</div></div>';
+  }
+
   function viewRanking() {
     var flash = st.winFlash && Date.now() < st.winFlash.until ? st.winFlash : null;
     var rows = rankRows(); // pontos no ranking: 1 por vitória
@@ -1360,22 +1381,47 @@
         (st.busy ? 'DESFAZENDO...' : (st.rapidoArm ? 'CONFIRMAR?' : 'DESFAZER')) + '</button></div>';
     }
     if (st.rankMsg && Date.now() < st.rankMsg.until) h += '<div class="err" role="alert">' + esc(st.rankMsg.text) + '</div>';
+
+    // quem já jogou entra no pódio e na lista; quem nunca jogou fica separado, no fim
+    var jogaram = rows.filter(function (r) { return r.j > 0; });
+    var nunca = rows.filter(function (r) { return r.j === 0; });
+    var total = st.matches.length;
+
     h += '<div class="rank-layout"><div class="stack">';
-    h += '<div class="box rank-box">' +
-      '<div class="rk head"><span>#</span><span>JOGADOR</span><span class="r">PTS</span><span class="r">J</span><span class="r">D</span><span class="r">SJ</span></div>';
-    rows.forEach(function (r, i) {
-      var top = i === 0 && r.rank > 0;
-      var won = flash && flash.winner === r.id;
-      var isMe = st.eu === r.id;
-      h += '<div class="rk line' + (top ? ' top' : '') + (won ? ' won' : '') + (isMe ? ' me' : '') + '"><span>' + (i + 1) + 'º</span><span class="n">' + esc(r.name) + '</span>' +
-        '<span class="r pts">' + (won ? '<span class="plus blink">+1</span>' : '') + r.rank + '</span>' +
-        '<span class="r">' + r.j + '</span><span class="r">' + r.d + '</span>' +
-        '<span class="r">' + (r.sj > 0 ? '+' + r.sj : r.sj) + '</span></div>';
-    });
-    if (!st.loaded) h += '<div class="note dim blink" style="padding: var(--gap)">Carregando ranking...</div>';
-    else if (!rows.length) h += '<div class="note dim" style="padding: var(--gap)">Cadastre jogadores para montar o ranking.</div>';
-    h += '</div>';
-    h += '<div class="legend">PTS 1 ponto por vitória · J partidas · D derrotas · SJ saldo de jogos (desempate) · jogo único mostra os pontos; mais de um jogo, os jogos · jogo rápido conta só a vitória</div></div>';
+    h += '<div class="rank-top"><span class="lbl">QUEM MAIS VENCEU</span>' +
+      '<span class="vt rank-count">' + total + ' partida' + (total === 1 ? '' : 's') + ' jogada' + (total === 1 ? '' : 's') + '</span></div>';
+
+    if (!st.loaded) {
+      h += '<div class="note dim blink">Carregando ranking...</div>';
+    } else if (!jogaram.length) {
+      h += '<div class="box empty-box"><div class="msg">NINGUÉM JOGOU AINDA</div>' +
+        '<div class="note">Quando a primeira partida for salva, o pódio aparece aqui.</div></div>';
+    } else {
+      // pódio: 2º à esquerda, 1º no meio, 3º à direita
+      h += '<div class="podio" role="list" aria-label="Pódio">' + degrau(jogaram[1], 2, flash) + degrau(jogaram[0], 1, flash) + degrau(jogaram[2], 3, flash) + '</div>';
+      if (jogaram.length > 3) {
+        h += '<div class="box rank-lista" role="list" aria-label="Demais jogadores">';
+        jogaram.slice(3).forEach(function (r, k) {
+          var won = flash && flash.winner === r.id, isMe = st.eu === r.id;
+          var pct = Math.round(r.rank / r.j * 100);
+          h += '<div class="rl' + (won ? ' won' : '') + (isMe ? ' me' : '') + '" role="listitem">' +
+            '<span class="rl-pos">' + (k + 4) + 'º</span>' +
+            '<div class="rl-info"><div class="rl-nome"><span class="n">' + esc(r.name) + '</span>' + (isMe ? '<span class="eu-mini">VOCÊ</span>' : '') + '</div>' +
+              '<span class="vt rl-resumo">' + vitTxt(r.rank) + ' · ' + r.d + (r.d === 1 ? ' derrota' : ' derrotas') + '</span></div>' +
+            '<div class="rl-pct">' + (won ? '<span class="plus blink">+1</span>' : '') + '<span>' + pct + '%</span>' +
+              '<span class="rl-barra" aria-hidden="true"><span style="width:' + pct + '%"></span></span></div>' +
+            '</div>';
+        });
+        h += '</div>';
+      }
+    }
+    if (st.loaded && nunca.length) {
+      h += '<div class="stack nunca"><div class="lbl">AINDA NÃO JOGARAM</div><div class="nunca-lista">' +
+        nunca.map(function (r) { return '<span class="nunca-chip' + (st.eu === r.id ? ' me' : '') + '">' + esc(r.name) + '</span>'; }).join('') +
+        '</div></div>';
+    }
+    h += '<div class="legend">Ordem: quem tem mais vitórias. Empatou? Fica na frente quem ganhou mais jogos do que perdeu. ' +
+      'A barra mostra a parte das partidas que a pessoa venceu. Jogo rápido conta só a vitória.</div></div>';
     h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
     st.matches.slice(0, 5).forEach(function (m) {
       var aWon = m.jogos_a > m.jogos_b, pl = placar(m);

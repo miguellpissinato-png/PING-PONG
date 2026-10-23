@@ -18,7 +18,7 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
   - **Jogos:** jogo único, melhor de 3, melhor de 5...
 
   Cada aparelho lembra as últimas regras usadas. As regras aparecem no topo do placar ao vivo e no rodapé, e ficam salvas junto com o resultado. O saque é sempre de quem fez o último ponto.
-- **Ranking:** cada vitória vale 1 ponto (PTS). Empates são decididos pelo saldo de jogos e depois pelos pontos feitos. Quando uma partida é salva, todo mundo que estava acompanhando vai direto para o ranking e o vencedor aparece com um +1 piscando por 15 segundos.
+- **Ranking:** os 3 primeiros aparecem num pódio (2º, 1º com coroa e 3º), com o número de vitórias e de partidas de cada um. Do 4º lugar em diante, uma lista com vitórias e derrotas por extenso e uma barra verde com a parte das partidas que a pessoa venceu. Quem nunca jogou fica separado em AINDA NÃO JOGARAM. Ordem: mais vitórias; empate decidido pelo saldo de jogos e depois pelos pontos feitos. Quando uma partida é salva, todo mundo que estava acompanhando vai direto para o ranking e o vencedor aparece com um +1 piscando por 15 segundos.
 - **Placar das partidas salvas:** jogo único mostra os pontos (ex.: `3 x 0`); partida de mais de um jogo mostra os jogos (ex.: `2 x 1`).
 - **Histórico:** todos os confrontos entre duplas, no formato `JÚLIO 3 x 1 FÁBIO` (quantas partidas cada um venceu contra o outro), com o total de pontos de cada um no ranking geral. Dá para filtrar por jogador.
 
