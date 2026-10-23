@@ -588,6 +588,40 @@
       '<span class="vt lv-score">' + esc(g.name1) + ' ' + pad(g.s1) + ' x ' + pad(g.s2) + ' ' + esc(g.name2) + '</span></button>';
   }
 
+  /* ---------- pato ----------
+     Quem perdeu PATO_MIN partidas ou mais para o mesmo adversário e nunca ganhou dele
+     vira "pato" desse adversário. Conta tudo o que já está no histórico (partidas com pontos e jogos rápidos).
+     Deixa de ser pato na primeira vitória contra ele. */
+  var PATO_MIN = 5;
+  var DUCK = '<svg class="pato-svg" viewBox="0 0 11 10" shape-rendering="crispEdges" aria-hidden="true">' +
+    '<path fill="#ffd84a" d="M4 0h3v1h-3zM3 1h5v1h-5zM3 2h2v1h-2zM6 2h2v1h-2zM3 3h5v1h-5zM4 4h4v1h-4zM0 5h1v1h-1zM2 5h8v1h-8zM0 6h10v2h-10zM1 8h8v1h-8zM2 9h6v1h-6z"/>' +
+    '<path fill="#fff6c2" d="M4 1h1v1h-1z"/><path fill="#050a1c" d="M5 2h1v1h-1z"/>' +
+    '<path fill="#ff8a1e" d="M8 2h2v1h-2zM8 3h3v1h-3z"/><path fill="#d9a514" d="M3 6h4v1h-4zM4 7h3v1h-3z"/></svg>';
+  // lista de patos: { pato, dono, derrotas }, quem mais apanhou primeiro
+  function patos() {
+    var ativos = {};
+    st.players.forEach(function (p) { ativos[p.id] = true; });
+    var out = [];
+    pairs().forEach(function (p) {
+      if (!ativos[p.a] || !ativos[p.b]) return;
+      if (p.winsA === 0 && p.winsB >= PATO_MIN) out.push({ pato: p.a, dono: p.b, derrotas: p.winsB });
+      else if (p.winsB === 0 && p.winsA >= PATO_MIN) out.push({ pato: p.b, dono: p.a, derrotas: p.winsA });
+    });
+    return out.sort(function (x, y) { return y.derrotas - x.derrotas || nameOf(x.pato).localeCompare(nameOf(y.pato)); });
+  }
+  function patoFrase(x) { return nameOf(x.pato) + ' É PATO DO ' + nameOf(x.dono); }
+  // faixa no topo, com borda verde: um pato por linha
+  function patoBanner(lista) {
+    var h = '<div class="pato-box" aria-label="Patos do placar">';
+    lista.slice(0, 3).forEach(function (x) {
+      h += '<div class="pato-linha">' + DUCK +
+        '<span class="pato-txt"><span class="pato-frase">' + esc(patoFrase(x)) + '</span>' +
+        '<span class="vt pato-sub">' + x.derrotas + ' x 0 no confronto</span></span></div>';
+    });
+    if (lista.length > 3) h += '<div class="vt pato-mais">+ ' + (lista.length - 3) + ' pato' + (lista.length - 3 > 1 ? 's' : '') + ' no Histórico</div>';
+    return h + '</div>';
+  }
+
   function tabs() {
     function t(id, label) {
       var on = st.tab === id || (id === 'jogadores' && st.tab === 'admin');
@@ -595,6 +629,9 @@
     }
     var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('jogadores', 'JOGADORES') + '</nav>';
     if (st.tab !== 'partida') bar += liveBadge();
+    // patos no topo de todas as telas, menos com o placar ao vivo aberto (a mesa precisa do espaço)
+    var lista = st.loaded ? patos() : [];
+    if (lista.length && !(st.tab === 'partida' && (st.playing || st.live))) bar += patoBanner(lista);
     if (st.netErr) bar += '<div class="net" role="status">SEM CONEXÃO COM O PLACAR ONLINE · TENTANDO DE NOVO</div>';
     return bar;
   }
@@ -1095,6 +1132,11 @@
       '<div class="lbl">JOGADOR</div></div>';
     h += '<div class="box profile-head">' +
       '<div class="profile-name rgb glow">' + esc(nome) + '</div>';
+    // é pato de alguém? tem patos?
+    patos().forEach(function (x) {
+      if (x.pato === id) h += '<div class="pato-tag">' + DUCK + '<span>É PATO DO ' + esc(nameOf(x.dono)) + ' · ' + x.derrotas + ' x 0</span></div>';
+      else if (x.dono === id) h += '<div class="pato-tag dono">' + DUCK + '<span>' + esc(nameOf(x.pato)) + ' É PATO DELE · ' + x.derrotas + ' x 0</span></div>';
+    });
     if (st.renAberto) {
       // qualquer pessoa troca o apelido, sem senha (admins só pela área admin)
       h += '<form id="renForm" class="add-form" novalidate>' +
@@ -1180,7 +1222,9 @@
       var swap = filtro && p.b === filtro;
       var a = swap ? p.b : p.a, b = swap ? p.a : p.b, wa = swap ? p.winsB : p.winsA, wb = swap ? p.winsA : p.winsB;
       var ta = totalWins(a), tb = totalWins(b);
-      h += '<div class="box pair">' + vsRow(nameOf(a), wa, nameOf(b), wb, true) +
+      var pato = (wa === 0 && wb >= PATO_MIN) ? { pato: a, dono: b, derrotas: wb } : (wb === 0 && wa >= PATO_MIN) ? { pato: b, dono: a, derrotas: wa } : null;
+      h += '<div class="box pair' + (pato ? ' tem-pato' : '') + '">' + vsRow(nameOf(a), wa, nameOf(b), wb, true) +
+        (pato ? '<div class="pato-tag">' + DUCK + '<span>' + esc(patoFrase(pato)) + '</span></div>' : '') +
         '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre eles · última ' + fmtWhen(p.last) + '</div>' +
         '<div class="pair-total">Ranking geral: <span class="' + (ta > tb ? 'lead' : '') + '">' + esc(nameOf(a)) + ' ' + ta + ' PTS</span> · ' +
           '<span class="' + (tb > ta ? 'lead' : '') + '">' + esc(nameOf(b)) + ' ' + tb + ' PTS</span></div>' +
