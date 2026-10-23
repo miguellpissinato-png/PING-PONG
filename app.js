@@ -290,7 +290,7 @@
   function refresh() {
     return Promise.all([
       api('jogadores?select=id,nome,ativo&order=nome.asc'),
-      api('partidas?select=id,jogador_a,jogador_b,jogos_a,jogos_b,pontos_a,pontos_b,regra_pontos,regra_vantagem,regra_direto,regra_jogos,rapido,criado_em&order=criado_em.desc&limit=5000')
+      api('partidas?select=*&order=criado_em.desc&limit=5000') // select=* funciona com ou sem a coluna rapido no banco
     ]).then(function (res) {
       var snap = JSON.stringify(res);
       var wasErr = st.netErr;
