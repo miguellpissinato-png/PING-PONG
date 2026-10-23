@@ -35,6 +35,7 @@
     me: null, authNome: '', authPin: '', authErr: '', authBusy: false,
     eu: null,            // jogador marcado como "este sou eu" neste aparelho (sem senha)
     jog: null,           // jogador aberto na aba Jogadores
+    renAberto: false, renNome: '', renErr: '', renMsg: '',  // MUDAR NOME do jogador aberto (sem senha)
     novo: false, novoNome: '', novoErr: '', histFiltro: '',
     picked: [], firstPick: 1, startErr: '',
     // tipo de partida: 'pontos' (marcada ponto a ponto, ao vivo) ou 'rapido' (só escolhe quem venceu)
@@ -587,6 +588,40 @@
       '<span class="vt lv-score">' + esc(g.name1) + ' ' + pad(g.s1) + ' x ' + pad(g.s2) + ' ' + esc(g.name2) + '</span></button>';
   }
 
+  /* ---------- pato ----------
+     Quem perdeu PATO_MIN partidas ou mais para o mesmo adversário e nunca ganhou dele
+     vira "pato" desse adversário. Conta tudo o que já está no histórico (partidas com pontos e jogos rápidos).
+     Deixa de ser pato na primeira vitória contra ele. */
+  var PATO_MIN = 5;
+  var DUCK = '<svg class="pato-svg" viewBox="0 0 11 10" shape-rendering="crispEdges" aria-hidden="true">' +
+    '<path fill="#ffd84a" d="M4 0h3v1h-3zM3 1h5v1h-5zM3 2h2v1h-2zM6 2h2v1h-2zM3 3h5v1h-5zM4 4h4v1h-4zM0 5h1v1h-1zM2 5h8v1h-8zM0 6h10v2h-10zM1 8h8v1h-8zM2 9h6v1h-6z"/>' +
+    '<path fill="#fff6c2" d="M4 1h1v1h-1z"/><path fill="#050a1c" d="M5 2h1v1h-1z"/>' +
+    '<path fill="#ff8a1e" d="M8 2h2v1h-2zM8 3h3v1h-3z"/><path fill="#d9a514" d="M3 6h4v1h-4zM4 7h3v1h-3z"/></svg>';
+  // lista de patos: { pato, dono, derrotas }, quem mais apanhou primeiro
+  function patos() {
+    var ativos = {};
+    st.players.forEach(function (p) { ativos[p.id] = true; });
+    var out = [];
+    pairs().forEach(function (p) {
+      if (!ativos[p.a] || !ativos[p.b]) return;
+      if (p.winsA === 0 && p.winsB >= PATO_MIN) out.push({ pato: p.a, dono: p.b, derrotas: p.winsB });
+      else if (p.winsB === 0 && p.winsA >= PATO_MIN) out.push({ pato: p.b, dono: p.a, derrotas: p.winsA });
+    });
+    return out.sort(function (x, y) { return y.derrotas - x.derrotas || nameOf(x.pato).localeCompare(nameOf(y.pato)); });
+  }
+  function patoFrase(x) { return nameOf(x.pato) + ' É PATO DO ' + nameOf(x.dono); }
+  // faixa no topo, com borda verde: um pato por linha
+  function patoBanner(lista) {
+    var h = '<div class="pato-box" aria-label="Patos do placar">';
+    lista.slice(0, 3).forEach(function (x) {
+      h += '<div class="pato-linha">' + DUCK +
+        '<span class="pato-txt"><span class="pato-frase">' + esc(patoFrase(x)) + '</span>' +
+        '<span class="vt pato-sub">' + x.derrotas + ' x 0 no confronto</span></span></div>';
+    });
+    if (lista.length > 3) h += '<div class="vt pato-mais">+ ' + (lista.length - 3) + ' pato' + (lista.length - 3 > 1 ? 's' : '') + ' no Histórico</div>';
+    return h + '</div>';
+  }
+
   function tabs() {
     function t(id, label) {
       var on = st.tab === id || (id === 'jogadores' && st.tab === 'admin');
@@ -594,6 +629,9 @@
     }
     var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('jogadores', 'JOGADORES') + '</nav>';
     if (st.tab !== 'partida') bar += liveBadge();
+    // patos no topo de todas as telas, menos com o placar ao vivo aberto (a mesa precisa do espaço)
+    var lista = st.loaded ? patos() : [];
+    if (lista.length && !(st.tab === 'partida' && (st.playing || st.live))) bar += patoBanner(lista);
     if (st.netErr) bar += '<div class="net" role="status">SEM CONEXÃO COM O PLACAR ONLINE · TENTANDO DE NOVO</div>';
     return bar;
   }
@@ -1054,6 +1092,35 @@
     return h + '</section>';
   }
 
+  /* Mudar o nome de um jogador: qualquer pessoa, sem senha. O banco recusa admins e o dono
+     (o apelido deles é o login da área admin) e nomes que já estão na lista. */
+  var REN_MSG = {
+    apelido_invalido: 'Digite um nome de 1 a 10 letras.',
+    apelido_em_uso: 'Esse nome já está na lista.',
+    nao_encontrado: 'Esse jogador saiu da lista.',
+    protegido: 'Esse jogador é admin: o nome dele só muda pela ÁREA ADMIN.'
+  };
+  function renameJogador() {
+    var id = st.jog;
+    if (st.busy || !id) return;
+    var nome = (st.renNome || '').trim().toUpperCase().slice(0, 10);
+    if (!nome) { set({ renErr: REN_MSG.apelido_invalido }); return; }
+    if (nome === nameOf(id)) { set({ renAberto: false, renErr: '' }); return; }
+    var antigo = nameOf(id);
+    set({ busy: true, renErr: '' });
+    rpc('renomear_jogador', { p_id: id, p_nome: nome }).then(function (r) {
+      st.busy = false;
+      if (!(r && r.ok)) { set({ renErr: REN_MSG[r && r.erro] || 'Não deu certo. Tente de novo.' }); return; }
+      st.names[id] = r.nome;
+      st.players.forEach(function (p) { if (p.id === id) p.name = r.nome; });
+      set({ renAberto: false, renNome: '', renErr: '', renMsg: antigo + ' agora se chama ' + r.nome + '.' });
+      refresh();
+    }).catch(function (err) {
+      var faltaNoBanco = err.status === 404 && err.body && err.body.code === 'PGRST202';
+      set({ busy: false, renErr: faltaNoBanco ? 'Essa opção ainda não está ativa no banco.' : 'Sem conexão. Confira a internet e tente de novo.' });
+    });
+  }
+
   /* números, confrontos e últimas partidas de um jogador */
   function viewJogador(id) {
     var nome = nameOf(id), souEu = st.eu === id;
@@ -1064,11 +1131,29 @@
     h += '<div class="row adm-top"><button class="btn ghost" type="button" data-act="jogVoltar">VOLTAR</button>' +
       '<div class="lbl">JOGADOR</div></div>';
     h += '<div class="box profile-head">' +
-      '<div class="profile-name rgb glow">' + esc(nome) + '</div>' +
-      (souEu ? '<div class="row center"><span class="eu-tag">ESTE É VOCÊ</span>' +
-                 '<button class="btn ghost" type="button" data-act="naoSouEu">NÃO SOU EU</button></div>'
-             : '<button class="btn ghost" type="button" data-act="souEu" data-v="' + id + '">ESTE SOU EU</button>') +
-      '</div>';
+      '<div class="profile-name rgb glow">' + esc(nome) + '</div>';
+    // é pato de alguém? tem patos?
+    patos().forEach(function (x) {
+      if (x.pato === id) h += '<div class="pato-tag">' + DUCK + '<span>É PATO DO ' + esc(nameOf(x.dono)) + ' · ' + x.derrotas + ' x 0</span></div>';
+      else if (x.dono === id) h += '<div class="pato-tag dono">' + DUCK + '<span>' + esc(nameOf(x.pato)) + ' É PATO DELE · ' + x.derrotas + ' x 0</span></div>';
+    });
+    if (st.renAberto) {
+      // qualquer pessoa troca o apelido, sem senha (admins só pela área admin)
+      h += '<form id="renForm" class="add-form" novalidate>' +
+        '<label class="lbl" for="renNome">NOVO NOME</label>' +
+        '<div class="row"><input id="renNome" class="field" type="text" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" value="' + esc(st.renNome) + '">' +
+        '<button class="btn go" type="submit"' + (st.busy ? ' disabled' : '') + '>' + (st.busy ? '...' : 'SALVAR') + '</button></div>' +
+        '<div id="renErr" class="err" role="alert">' + esc(st.renErr) + '</div>' +
+        '<div class="legend">De 1 a 10 letras. As partidas e as vitórias continuam com ele.</div>' +
+        '<div class="row"><button class="btn ghost" type="button" data-act="renCancelar">CANCELAR</button></div></form>';
+    } else {
+      h += '<div class="row center">' +
+        (souEu ? '<span class="eu-tag">ESTE É VOCÊ</span><button class="btn ghost" type="button" data-act="naoSouEu">NÃO SOU EU</button>'
+               : '<button class="btn ghost" type="button" data-act="souEu" data-v="' + id + '">ESTE SOU EU</button>') +
+        '<button class="btn ghost" type="button" data-act="renAbrir" data-v="' + id + '">MUDAR NOME</button></div>';
+      if (st.renMsg) h += '<div class="ok-msg" role="status">' + esc(st.renMsg) + '</div>';
+    }
+    h += '</div>';
     h += '<div class="tiles">' +
       '<div class="box tile"><div class="num">' + mine.j + '</div><div class="lbl">PARTIDAS</div></div>' +
       '<div class="box tile"><div class="num win">' + mine.rank + '</div><div class="lbl">VITÓRIAS</div></div>' +
@@ -1137,7 +1222,9 @@
       var swap = filtro && p.b === filtro;
       var a = swap ? p.b : p.a, b = swap ? p.a : p.b, wa = swap ? p.winsB : p.winsA, wb = swap ? p.winsA : p.winsB;
       var ta = totalWins(a), tb = totalWins(b);
-      h += '<div class="box pair">' + vsRow(nameOf(a), wa, nameOf(b), wb, true) +
+      var pato = (wa === 0 && wb >= PATO_MIN) ? { pato: a, dono: b, derrotas: wb } : (wb === 0 && wa >= PATO_MIN) ? { pato: b, dono: a, derrotas: wa } : null;
+      h += '<div class="box pair' + (pato ? ' tem-pato' : '') + '">' + vsRow(nameOf(a), wa, nameOf(b), wb, true) +
+        (pato ? '<div class="pato-tag">' + DUCK + '<span>' + esc(patoFrase(pato)) + '</span></div>' : '') +
         '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre eles · última ' + fmtWhen(p.last) + '</div>' +
         '<div class="pair-total">Ranking geral: <span class="' + (ta > tb ? 'lead' : '') + '">' + esc(nameOf(a)) + ' ' + ta + ' PTS</span> · ' +
           '<span class="' + (tb > ta ? 'lead' : '') + '">' + esc(nameOf(b)) + ' ' + tb + ' PTS</span></div>' +
@@ -1522,7 +1609,8 @@
     switch (act) {
       case 'tab':
         if (v === 'admin') { st.admErr = ''; st.admMsg = ''; st.admSel = null; st.admForm = ''; st.authErr = ''; }
-        set({ tab: v, quitArm: false, admArm: '', jog: v === 'jogadores' ? st.jog : null, novo: v === 'partida' ? st.novo : false });
+        set({ tab: v, quitArm: false, admArm: '', jog: v === 'jogadores' ? st.jog : null, novo: v === 'partida' ? st.novo : false,
+              renAberto: false, renErr: '', renMsg: '' });
         if (v === 'admin') loadAdmin();
         break;
       case 'admSel':
@@ -1532,11 +1620,18 @@
         set({ admForm: '', admFormVal: '', admErr: '' });
         break;
       case 'jog':
-        set({ jog: Number(v) });
+        set({ jog: Number(v), renAberto: false, renErr: '', renMsg: '' });
         view.scrollTop = 0;
         break;
       case 'jogVoltar':
-        set({ jog: null });
+        set({ jog: null, renAberto: false, renErr: '', renMsg: '' });
+        break;
+      case 'renAbrir':
+        set({ renAberto: true, renNome: nameOf(Number(v)), renErr: '', renMsg: '' });
+        var rn = document.getElementById('renNome'); if (rn) { rn.focus(); try { rn.select(); } catch (e) {} }
+        break;
+      case 'renCancelar':
+        set({ renAberto: false, renNome: '', renErr: '' });
         break;
       case 'souEu':
         saveEu(Number(v));
@@ -1660,6 +1755,7 @@
       st.authPin = digits; clearMsg('authErr', 'authErr');
     }
     else if (el.id === 'novoNome') { st.novoNome = el.value.toUpperCase().slice(0, 10); clearMsg('novoErr', 'novoErr'); }
+    else if (el.id === 'renNome') { st.renNome = el.value.toUpperCase().slice(0, 10); clearMsg('renErr', 'renErr'); }
     else if (el.id === 'rg-pontos' || el.id === 'rg-diretoN') {
       // só números; qualquer valor a partir de 1 vale
       var k = el.id.slice(3), dig = el.value.replace(/\D/g, '').replace(/^0+/, '').slice(0, 6);
@@ -1692,6 +1788,7 @@
     e.preventDefault();
     if (e.target.id === 'authForm') doAuth();
     else if (e.target.id === 'novoForm') addPlayer();
+    else if (e.target.id === 'renForm') renameJogador();
     else if (e.target.id === 'admForm') submitAdmForm();
   });
 

@@ -644,3 +644,28 @@ nav.tabs { display: flex; flex: none; }
   .pod2 .pod-bloco { height: calc(var(--tap) * .9); }
   .pod3 .pod-bloco { height: calc(var(--tap) * .65); }
 }
+
+/* ---------- pato: perdeu várias para o mesmo adversário e nunca ganhou ---------- */
+.pato-box { display: flex; flex-direction: column; gap: calc(var(--gap-s) * .6); padding: calc(var(--gap-s) * .8) var(--gap); flex: none;
+  background: rgba(57,255,122,.08); box-shadow: inset 0 0 0 var(--border) var(--green), 0 0 18px rgba(57,255,122,.3); }
+.pato-linha { display: flex; align-items: center; gap: var(--gap-s); min-width: 0; }
+.pato-linha + .pato-linha { padding-top: calc(var(--gap-s) * .6); border-top: max(1px, calc(var(--border) / 2)) dashed rgba(57,255,122,.4); }
+.pato-svg { width: calc(var(--fs-md) * 2); height: calc(var(--fs-md) * 1.8); flex: none; animation: pato 1.6s steps(2, end) infinite; }
+.pato-txt { display: flex; flex-direction: column; gap: .35em; min-width: 0; }
+.pato-frase { font-size: var(--fs-sm); letter-spacing: .06em; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+.pato-sub { font-size: var(--vt-sm); color: var(--green); line-height: 1; }
+.pato-mais { font-size: var(--vt-sm); color: var(--ink-soft); }
+.pato-tag { display: inline-flex; align-items: center; gap: .6em; align-self: center; padding: .45em .7em; font-size: var(--fs-xs); letter-spacing: .08em; line-height: 1.4;
+  color: var(--ink); background: rgba(57,255,122,.1); box-shadow: inset 0 0 0 2px var(--green); }
+.pato-tag .pato-svg { width: calc(var(--fs-xs) * 2.2); height: calc(var(--fs-xs) * 2); }
+.pato-tag.dono { box-shadow: inset 0 0 0 2px rgba(57,255,122,.5); background: transparent; }
+.pair.tem-pato { box-shadow: inset 0 0 0 var(--border) var(--green); }
+.pair .pato-tag { margin-top: .3em; }
+@keyframes pato { 0% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-12%) rotate(4deg); } }
+@media (prefers-reduced-motion: reduce) { .pato-svg { animation: none; } }
+/* deitado: os patos ficam lado a lado, numa faixa só */
+@media (orientation: landscape) {
+  .pato-box { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: calc(var(--gap) * 1.5); }
+  .pato-linha { flex: 1 1 18em; }
+  .pato-linha + .pato-linha { padding-top: 0; border-top: 0; }
+}
