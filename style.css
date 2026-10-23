@@ -569,3 +569,34 @@ nav.tabs { display: flex; flex: none; }
 .rg-val { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--ink);
   box-shadow: inset 0 0 0 var(--border) var(--line-2); padding: 0 .6em; text-align: center; }
 .rg-opts .rg-opt { font-size: var(--fs-xs); line-height: 1.4; padding: .4em .8em; }
+
+/* ---------- jogo rápido: só quem venceu ---------- */
+.modo { flex: none; }
+.modo-opt { font-size: var(--fs-xs); letter-spacing: .1em; line-height: 1.4; padding: .4em .8em; }
+.win-chip { display: inline-flex; align-items: center; gap: .55em; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--ground); background: var(--green); padding: .5em .6em; flex: none;
+  box-shadow: 0 0 14px rgba(57,255,122,.55); }
+.win-chip svg { width: 1.1em; height: 1.1em; }
+.prep-lado.escolhe-vencedor:active { background: rgba(57,255,122,.16); }
+.prep-lado.escolhe-vencedor:focus-visible { outline-color: var(--green); }
+.prep-lado.venceu { background: rgba(57,255,122,.14); box-shadow: inset 0 0 0 var(--border) rgba(57,255,122,.75); }
+.prep-lado.venceu:hover { background: rgba(57,255,122,.2); }
+.prep-lado.perdeu .prep-nm, .prep-lado.perdeu .prep-tag, .prep-lado.perdeu .prep-msg { opacity: .5; }
+.rapido-info { gap: .6em; }
+.desfazer-rapido { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--gap-s) var(--gap); padding: var(--gap-s) var(--gap); flex: none; }
+.desfazer-rapido .vt { font-size: var(--vt-sm); color: var(--ink-soft); }
+.desfazer-rapido .btn { flex: none; font-size: var(--fs-xs); }
+.rapido-tag { display: inline-block; margin-left: .4em; padding: .3em .45em; vertical-align: middle; font-family: 'Press Start 2P', 'Courier New', monospace; font-size: calc(var(--fs-xs) * .85);
+  letter-spacing: .08em; color: var(--ink-dim); box-shadow: inset 0 0 0 2px var(--line-2); }
+
+/* tutorial: passo do jogo rápido */
+.ob-novo { color: var(--amarelo); letter-spacing: .12em; }
+.ob-modo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6em; width: 100%; font-size: .7em; text-align: center; }
+.ob-modo span { padding: .9em .3em; color: #9fb0e6; box-shadow: inset 0 0 0 .2em var(--line-2); }
+.ob-modo span.on { color: #0a1230; background: var(--ink); }
+.ob-quick { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); width: 100%; background: var(--mesa); box-shadow: inset 0 0 0 .25em var(--ink); }
+.ob-qside { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6em; min-height: 6.5em; padding: .8em .4em; font-size: .85em; }
+.ob-qside.win { background: rgba(57,255,122,.16); box-shadow: inset 0 0 0 .22em rgba(57,255,122,.75); }
+.ob-qside:not(.win) span { opacity: .55; }
+.ob-qwin { font-size: .75em; padding: .4em .5em; letter-spacing: .1em; color: var(--ground); background: var(--green); }
+.ob-qnet { width: .6em; background: repeating-linear-gradient(0deg, #dbe3ff 0 2px, #6f80bd 2px 5px); box-shadow: inset .15em 0 0 var(--ink); }
+.ob-qside .ob-tap { right: 4%; bottom: -1.2em; width: 2.6em; height: 3.3em; }
