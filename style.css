@@ -669,3 +669,8 @@ nav.tabs { display: flex; flex: none; }
   .pato-linha { flex: 1 1 18em; }
   .pato-linha + .pato-linha { padding-top: 0; border-top: 0; }
 }
+
+/* ---------- período do Ranking e do Histórico: GERAL, HOJE, SEMANA, MÊS ---------- */
+.periodo { flex: none; }
+.periodo-opt { font-size: var(--fs-xs); letter-spacing: .08em; line-height: 1.4; padding: .4em .3em; }
+.periodo-info { flex: none; font-size: var(--vt-sm); color: var(--amarelo); letter-spacing: .04em; }

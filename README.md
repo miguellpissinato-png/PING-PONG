@@ -18,10 +18,16 @@ Placar de tênis de mesa no estilo fliperama, com tela de CRT antiga: pixels que
   - **Jogos:** jogo único, melhor de 3, melhor de 5...
 
   Cada aparelho lembra as últimas regras usadas. As regras aparecem no topo do placar ao vivo e no rodapé, e ficam salvas junto com o resultado. O saque é sempre de quem fez o último ponto.
+- **Períodos no Ranking e no Histórico:** no topo das duas abas, **GERAL** (todo o histórico, como sempre foi), **HOJE**, **SEMANA** e **MÊS**. Cada período começa do zero, então quem tem poucas vitórias no geral ainda pode liderar o dia, a semana ou o mês. Tudo no horário do aparelho:
+  - **HOJE:** da meia-noite até agora.
+  - **SEMANA:** de segunda a sexta (dias úteis); zera na segunda às 0h. Partidas no sábado e no domingo não entram na semana (contam no dia, no mês e no geral). No fim de semana, a aba mostra a semana que acabou de terminar.
+  - **MÊS:** do dia 1 até o último dia do mês.
+
+  O período escolhido aparece em amarelo (ex.: `SEG 26/10 A SEX 30/10`, `OUTUBRO 2026`) e vale para o pódio, a lista, quem não jogou, as últimas partidas e os confrontos do Histórico. Cada aparelho lembra o último período usado. O pato continua contando todo o histórico.
 - **Ranking:** os 3 primeiros aparecem num pódio (2º, 1º com coroa e 3º), com o número de vitórias e de partidas de cada um. Do 4º lugar em diante, uma lista com vitórias e derrotas por extenso e uma barra verde com a parte das partidas que a pessoa venceu. Quem nunca jogou fica separado em AINDA NÃO JOGARAM. Ordem: mais vitórias; empate decidido pelo saldo de jogos e depois pelos pontos feitos. Quando uma partida é salva, todo mundo que estava acompanhando vai direto para o ranking e o vencedor aparece com um +1 piscando por 15 segundos.
 - **Pato:** quem perdeu 5 partidas ou mais para o mesmo adversário e nunca ganhou dele vira pato dele. No topo do site aparece uma faixa com borda verde e um patinho de borracha: `KAMIKAZE É PATO DO MEGALOTRON · 6 x 0 no confronto` (até 3 patos; com o placar ao vivo aberto a faixa some para a mesa caber). O confronto no Histórico e a página do jogador também mostram o patinho. Conta todo o histórico (partidas com pontos e jogos rápidos) e deixa de valer na primeira vitória do pato contra o dono. O número mínimo fica em `PATO_MIN`, no `app.js`.
 - **Placar das partidas salvas:** jogo único mostra os pontos (ex.: `3 x 0`); partida de mais de um jogo mostra os jogos (ex.: `2 x 1`).
-- **Histórico:** todos os confrontos entre duplas, no formato `JÚLIO 3 x 1 FÁBIO` (quantas partidas cada um venceu contra o outro), com o total de pontos de cada um no ranking geral. Dá para filtrar por jogador.
+- **Histórico:** todos os confrontos entre duplas, no formato `JÚLIO 3 x 1 FÁBIO` (quantas partidas cada um venceu contra o outro), com o total de pontos de cada um no período escolhido (no GERAL, o ranking geral). Dá para filtrar por jogador.
 
 - **Tutorial:** na primeira vez que o site abre num aparelho, aparece um passo a passo ilustrado com as abas, como iniciar partida, jogo rápido, 1 toque e 2 toques, partida ao vivo, ranking, histórico e jogadores. Dá para pular e rever depois em **COMO FUNCIONA**, na aba Jogadores. Quem já tinha visto o tutorial antes do jogo rápido vê uma vez só o aviso **NOVIDADE NO PLACAR**, com **VER TUDO** para o tutorial inteiro.
 

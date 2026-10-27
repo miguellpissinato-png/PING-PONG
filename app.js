@@ -23,6 +23,7 @@
   var EU_KEY = 'disputa-elsys-eu';              // jogador que a pessoa marcou como "este sou eu" neste aparelho
   var REGRA_KEY = 'disputa-elsys-regras';       // últimas regras escolhidas neste aparelho
   var MODO_KEY = 'disputa-elsys-modo';          // último tipo de partida usado neste aparelho: 'pontos' ou 'rapido'
+  var PERIODO_KEY = 'disputa-elsys-periodo';   // último período escolhido no Ranking e no Histórico neste aparelho
   var UNDO_MS = 2 * 60 * 1000;                  // jogo rápido registrado pode ser desfeito neste prazo (no aparelho que registrou)
 
   var st = {
@@ -37,6 +38,7 @@
     jog: null,           // jogador aberto na aba Jogadores
     renAberto: false, renNome: '', renErr: '', renMsg: '',  // MUDAR NOME do jogador aberto (sem senha)
     novo: false, novoNome: '', novoErr: '', histFiltro: '',
+    periodo: 'geral',    // Ranking e Histórico: 'geral' (tudo), 'dia' (hoje), 'semana' (seg a sex) ou 'mes'
     picked: [], firstPick: 1, startErr: '',
     // tipo de partida: 'pontos' (marcada ponto a ponto, ao vivo) ou 'rapido' (só escolhe quem venceu)
     modo: 'pontos', vencedor: 0,
@@ -184,6 +186,14 @@
   }
   function saveModo(m) {
     try { localStorage.setItem(MODO_KEY, m); } catch (e) {}
+  }
+
+  /* Período do Ranking e do Histórico: GERAL, HOJE, SEMANA (segunda a sexta) ou MÊS. O aparelho lembra o último. */
+  function loadPeriodo() {
+    try { var v = localStorage.getItem(PERIODO_KEY); return PERIODOS[v] ? v : 'geral'; } catch (e) { return 'geral'; }
+  }
+  function savePeriodo(v) {
+    try { localStorage.setItem(PERIODO_KEY, v); } catch (e) {}
   }
 
   /* Login de admin guardado neste aparelho. Só vale para quem é dono ou admin. */
@@ -399,10 +409,11 @@
     });
   }
 
-  function stats() {
+  // números de cada jogador nas partidas da lista (sem lista: todo o histórico)
+  function stats(lista) {
     var out = {};
     function get(id) { return out[id] || (out[id] = { v: 0, d: 0, gp: 0, gc: 0, pts: 0 }); }
-    st.matches.forEach(function (m) {
+    (lista || st.matches).forEach(function (m) {
       var a = get(m.jogador_a), b = get(m.jogador_b);
       a.gp += m.jogos_a; a.gc += m.jogos_b; a.pts += m.pontos_a;
       b.gp += m.jogos_b; b.gc += m.jogos_a; b.pts += m.pontos_b;
@@ -942,7 +953,7 @@
           '<div class="ob-tabrow"><span class="on">PARTIDA</span><span>RANKING</span><span>HISTÓRICO</span><span>JOGADORES</span></div>' +
           '<ul class="ob-list">' +
             '<li><b>PARTIDA</b> iniciar e acompanhar jogos</li>' +
-            '<li><b>RANKING</b> quem tem mais vitórias</li>' +
+            '<li><b>RANKING</b> quem mais vence: geral, hoje, na semana e no mês</li>' +
             '<li><b>HISTÓRICO</b> quem ganha de quem</li>' +
             '<li><b>JOGADORES</b> os números de cada um</li></ul></div>',
         text: 'Tudo fica nessas quatro abas, no topo da tela. Toque em uma para trocar.' },
@@ -977,7 +988,7 @@
           '<div class="ob-rkrow won"><span>1º</span><span class="n">RAIO</span><span class="pts"><i>+1</i> 5</span></div>' +
           '<div class="ob-rkrow"><span>2º</span><span class="n">TROVÃO</span><span class="pts">4</span></div>' +
           '<div class="ob-rkrow"><span>3º</span><span class="n">FAÍSCA</span><span class="pts">2</span></div></div>',
-        text: 'Cada partida tem as regras que vocês escolherem: até quantos pontos, vantagem de 2 no empate, vitória direta e quantos jogos. Quando acabar, toque em SALVAR NO RANKING. Cada vitória vale 1 ponto e todo mundo vê na hora.' },
+        text: 'Cada partida tem as regras que vocês escolherem: até quantos pontos, vantagem de 2 no empate, vitória direta e quantos jogos. Quando acabar, toque em SALVAR NO RANKING. Cada vitória vale 1 ponto e todo mundo vê na hora. No topo do Ranking, troque entre GERAL, HOJE, SEMANA (segunda a sexta) e MÊS: cada período começa do zero, então todo mundo tem chance de chegar ao topo.' },
       { title: 'HISTÓRICO E JOGADORES',
         art: '<div class="ob-hp">' +
           '<div class="ob-pair"><span class="lead">RAIO</span><span class="sc">3 x 1</span><span>TROVÃO</span></div>' +
@@ -1023,8 +1034,8 @@
   }
 
   /* ---------- números de cada jogador e confrontos ---------- */
-  function rankRows() {
-    var all = stats();
+  function rankRows(lista) {
+    var all = stats(lista);
     var rows = st.players.map(function (p) {
       var s = Object.assign({ v: 0, d: 0, gp: 0, gc: 0, pts: 0 }, all[p.id]);
       return { id: p.id, name: p.name, rank: s.v, j: s.v + s.d, d: s.d, sj: s.gp - s.gc, feitos: s.pts };
@@ -1034,9 +1045,9 @@
   }
 
   // confrontos: uma linha por dupla que já se enfrentou
-  function pairs() {
+  function pairs(lista) {
     var map = {};
-    st.matches.forEach(function (m) {
+    (lista || st.matches).forEach(function (m) {
       var lo = Math.min(m.jogador_a, m.jogador_b), hi = Math.max(m.jogador_a, m.jogador_b), k = lo + '-' + hi;
       var p = map[k] || (map[k] = { a: lo, b: hi, winsA: 0, winsB: 0, count: 0, last: m.criado_em, matches: [] });
       var winner = m.jogos_a > m.jogos_b ? m.jogador_a : m.jogador_b;
@@ -1045,6 +1056,66 @@
     });
     return Object.keys(map).map(function (k) { return map[k]; })
       .sort(function (x, y) { return tsMicros(y.last) - tsMicros(x.last); }); // st.matches vem do mais recente
+  }
+
+  /* ---------- períodos: geral, hoje, semana (segunda a sexta) e mês ----------
+     Tudo no horário do aparelho: o dia vira à meia-noite, a semana começa na segunda às 0h e
+     termina na sexta às 23h59, e o mês vai do dia 1 até o último dia. Partidas no sábado e no
+     domingo não entram na semana (só dias úteis), mas contam no dia, no mês e no geral.
+     No fim de semana, a aba SEMANA mostra a semana que acabou de terminar. */
+  var PERIODOS = {
+    geral: { label: 'GERAL', nunca: 'AINDA NÃO JOGARAM', ninguem: 'NINGUÉM JOGOU AINDA', pts: 'Ranking geral' },
+    dia: { label: 'HOJE', nunca: 'NÃO JOGARAM HOJE', ninguem: 'NINGUÉM JOGOU HOJE', pts: 'Hoje' },
+    semana: { label: 'SEMANA', nunca: 'NÃO JOGARAM NA SEMANA', ninguem: 'NINGUÉM JOGOU NA SEMANA', pts: 'Na semana' },
+    mes: { label: 'MÊS', nunca: 'NÃO JOGARAM NO MÊS', ninguem: 'NINGUÉM JOGOU NO MÊS', pts: 'No mês' }
+  };
+  var DIAS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
+  var MESES = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+  function ddmm(d) { return pad(d.getDate()) + '/' + pad(d.getMonth() + 1); }
+
+  // { ini, fim } em ms (fim fora do período) e o texto que diz qual período é; geral = sem limite
+  function periodoRange(p, agora) {
+    var d = agora || new Date(), y = d.getFullYear(), mo = d.getMonth(), dia = d.getDate();
+    if (p === 'dia') {
+      return { ini: new Date(y, mo, dia).getTime(), fim: new Date(y, mo, dia + 1).getTime(), texto: 'HOJE · ' + DIAS[d.getDay()] + ' ' + ddmm(d) };
+    }
+    if (p === 'semana') {
+      var dow = d.getDay(), seg = dia + (dow === 0 ? -6 : 1 - dow); // domingo volta para a segunda anterior
+      var ini = new Date(y, mo, seg), sex = new Date(y, mo, seg + 4);
+      return { ini: ini.getTime(), fim: new Date(y, mo, seg + 5).getTime(), texto: 'SEG ' + ddmm(ini) + ' A SEX ' + ddmm(sex),
+               encerrada: dow === 0 || dow === 6 };
+    }
+    if (p === 'mes') {
+      return { ini: new Date(y, mo, 1).getTime(), fim: new Date(y, mo + 1, 1).getTime(), texto: MESES[mo] + ' ' + y };
+    }
+    return { ini: -Infinity, fim: Infinity, texto: 'DESDE O INÍCIO' };
+  }
+
+  // partidas do período escolhido (do mais recente para o mais antigo, como st.matches)
+  function partidasDo(p) {
+    if (p === 'geral') return st.matches;
+    var r = periodoRange(p);
+    return st.matches.filter(function (m) {
+      var t = tsMicros(m.criado_em) / 1000;
+      return t >= r.ini && t < r.fim;
+    });
+  }
+
+  function periodoNo(p) { return p === 'dia' ? 'hoje' : p === 'semana' ? 'nesta semana' : p === 'mes' ? 'neste mês' : ''; }
+  function periodoRegra(p) {
+    if (p === 'dia') return 'O dia zera à meia-noite.';
+    if (p === 'semana') return 'A semana vai de segunda a sexta (dias úteis) e zera na segunda. Jogos no sábado e no domingo não entram na semana.';
+    if (p === 'mes') return 'O mês zera no dia 1.';
+    return '';
+  }
+
+  // GERAL / HOJE / SEMANA / MÊS, no topo do Ranking e do Histórico
+  function periodoToggle() {
+    function b(v) {
+      var on = st.periodo === v;
+      return '<button class="opt periodo-opt' + (on ? ' on' : '') + '" type="button" data-act="periodo" data-v="' + v + '" aria-pressed="' + on + '">' + PERIODOS[v].label + '</button>';
+    }
+    return '<div class="row periodo" role="group" aria-label="Período">' + b('geral') + b('dia') + b('semana') + b('mes') + '</div>';
   }
 
   function fmtWhen(s) {
@@ -1208,8 +1279,16 @@
   /* ---------- histórico público de confrontos ---------- */
   function viewHistorico() {
     var filtro = Number(st.histFiltro) || 0;
-    var list = pairs().filter(function (p) { return !filtro || p.a === filtro || p.b === filtro; });
+    var per = PERIODOS[st.periodo], ms = partidasDo(st.periodo), rg = periodoRange(st.periodo);
+    var list = pairs(ms).filter(function (p) { return !filtro || p.a === filtro || p.b === filtro; });
+    var ptsPer = stats(ms);
+    function ptsDe(id) { return ptsPer[id] ? ptsPer[id].v : 0; }
+    // pato vale pelo histórico inteiro, mesmo olhando só um período
+    var patoDe = {};
+    patos().forEach(function (x) { patoDe[Math.min(x.pato, x.dono) + '-' + Math.max(x.pato, x.dono)] = x; });
     var h = '<section>';
+    h += periodoToggle();
+    if (st.periodo !== 'geral') h += '<div class="vt periodo-info">' + esc(rg.texto) + (rg.encerrada ? ' · semana encerrada' : '') + '</div>';
     h += '<div class="filter"><label class="lbl" for="histFiltro">VER CONFRONTOS DE</label>' +
       '<select id="histFiltro" class="field select"><option value="">TODOS OS JOGADORES</option>';
     st.players.forEach(function (p) {
@@ -1221,19 +1300,25 @@
       // com filtro, o jogador escolhido fica sempre à esquerda
       var swap = filtro && p.b === filtro;
       var a = swap ? p.b : p.a, b = swap ? p.a : p.b, wa = swap ? p.winsB : p.winsA, wb = swap ? p.winsA : p.winsB;
-      var ta = totalWins(a), tb = totalWins(b);
-      var pato = (wa === 0 && wb >= PATO_MIN) ? { pato: a, dono: b, derrotas: wb } : (wb === 0 && wa >= PATO_MIN) ? { pato: b, dono: a, derrotas: wa } : null;
+      var ta = ptsDe(a), tb = ptsDe(b);
+      var pato = patoDe[p.a + '-' + p.b] || null;
       h += '<div class="box pair' + (pato ? ' tem-pato' : '') + '">' + vsRow(nameOf(a), wa, nameOf(b), wb, true) +
         (pato ? '<div class="pato-tag">' + DUCK + '<span>' + esc(patoFrase(pato)) + '</span></div>' : '') +
-        '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre eles · última ' + fmtWhen(p.last) + '</div>' +
-        '<div class="pair-total">Ranking geral: <span class="' + (ta > tb ? 'lead' : '') + '">' + esc(nameOf(a)) + ' ' + ta + ' PTS</span> · ' +
+        '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre eles' + (st.periodo === 'geral' ? '' : ' ' + periodoNo(st.periodo)) + ' · última ' + fmtWhen(p.last) + '</div>' +
+        '<div class="pair-total">' + per.pts + ': <span class="' + (ta > tb ? 'lead' : '') + '">' + esc(nameOf(a)) + ' ' + ta + ' PTS</span> · ' +
           '<span class="' + (tb > ta ? 'lead' : '') + '">' + esc(nameOf(b)) + ' ' + tb + ' PTS</span></div>' +
         '</div>';
     });
     h += '</div>';
     if (!st.loaded) h += '<div class="note dim blink">Carregando histórico...</div>';
-    else if (!list.length) h += '<div class="note dim">' + (filtro ? 'Esse jogador ainda não jogou nenhuma partida.' : 'Nenhuma partida registrada ainda.') + '</div>';
-    h += '<div class="legend">O placar grande mostra quantas partidas cada um venceu contra o outro. PTS no ranking geral = vitórias contra todos (1 ponto por vitória).</div>';
+    else if (!list.length) {
+      h += '<div class="note dim">' + (st.periodo === 'geral'
+        ? (filtro ? 'Esse jogador ainda não jogou nenhuma partida.' : 'Nenhuma partida registrada ainda.')
+        : (filtro ? 'Esse jogador não jogou ' : 'Nenhuma partida ') + periodoNo(st.periodo) + '.') + '</div>';
+    }
+    h += '<div class="legend">' + (st.periodo === 'geral'
+      ? 'O placar grande mostra quantas partidas cada um venceu contra o outro. PTS no ranking geral = vitórias contra todos (1 ponto por vitória).'
+      : 'O placar grande mostra quantas partidas cada um venceu contra o outro ' + periodoNo(st.periodo) + '. PTS = vitórias contra todos ' + periodoNo(st.periodo) + '. ' + periodoRegra(st.periodo)) + '</div>';
     return h + '</section>';
   }
 
@@ -1453,9 +1538,11 @@
 
   function viewRanking() {
     var flash = st.winFlash && Date.now() < st.winFlash.until ? st.winFlash : null;
-    var rows = rankRows(); // pontos no ranking: 1 por vitória
+    var per = PERIODOS[st.periodo], ms = partidasDo(st.periodo), rg = periodoRange(st.periodo);
+    var rows = rankRows(ms); // pontos no ranking: 1 por vitória, só nas partidas do período
 
     var h = '<section>';
+    h += periodoToggle();
     if (flash) {
       h += '<div class="win-news" role="status"><span class="plus blink">+1</span>' +
         '<span>' + esc(nameOf(flash.winner)) + ' venceu ' + esc(nameOf(flash.loser)) + ' ' + esc(flash.como) + '</span></div>';
@@ -1472,17 +1559,19 @@
     // quem já jogou entra no pódio e na lista; quem nunca jogou fica separado, no fim
     var jogaram = rows.filter(function (r) { return r.j > 0; });
     var nunca = rows.filter(function (r) { return r.j === 0; });
-    var total = st.matches.length;
+    var total = ms.length;
 
     h += '<div class="rank-layout"><div class="stack">';
-    h += '<div class="rank-top"><span class="lbl">QUEM MAIS VENCEU</span>' +
+    h += '<div class="rank-top"><span class="lbl">QUEM MAIS VENCEU' + (st.periodo === 'geral' ? '' : ' ' + periodoNo(st.periodo).toUpperCase()) + '</span>' +
       '<span class="vt rank-count">' + total + ' partida' + (total === 1 ? '' : 's') + ' jogada' + (total === 1 ? '' : 's') + '</span></div>';
+    if (st.periodo !== 'geral') h += '<div class="vt periodo-info">' + esc(rg.texto) + (rg.encerrada ? ' · semana encerrada, a próxima começa na segunda' : '') + '</div>';
 
     if (!st.loaded) {
       h += '<div class="note dim blink">Carregando ranking...</div>';
     } else if (!jogaram.length) {
-      h += '<div class="box empty-box"><div class="msg">NINGUÉM JOGOU AINDA</div>' +
-        '<div class="note">Quando a primeira partida for salva, o pódio aparece aqui.</div></div>';
+      h += '<div class="box empty-box"><div class="msg">' + per.ninguem + '</div>' +
+        '<div class="note">' + (st.periodo === 'geral' ? 'Quando a primeira partida for salva, o pódio aparece aqui.'
+          : 'O pódio ' + (st.periodo === 'dia' ? 'de hoje' : st.periodo === 'semana' ? 'da semana' : 'do mês') + ' começa vazio para todo mundo. A primeira vitória já coloca alguém no topo.') + '</div></div>';
     } else {
       // pódio: 2º à esquerda, 1º no meio, 3º à direita
       h += '<div class="podio" role="list" aria-label="Pódio">' + degrau(jogaram[1], 2, flash) + degrau(jogaram[0], 1, flash) + degrau(jogaram[2], 3, flash) + '</div>';
@@ -1503,14 +1592,15 @@
       }
     }
     if (st.loaded && nunca.length) {
-      h += '<div class="stack nunca"><div class="lbl">AINDA NÃO JOGARAM</div><div class="nunca-lista">' +
+      h += '<div class="stack nunca"><div class="lbl">' + per.nunca + '</div><div class="nunca-lista">' +
         nunca.map(function (r) { return '<span class="nunca-chip' + (st.eu === r.id ? ' me' : '') + '">' + esc(r.name) + '</span>'; }).join('') +
         '</div></div>';
     }
     h += '<div class="legend">Ordem: quem tem mais vitórias. Empatou? Fica na frente quem ganhou mais jogos do que perdeu. ' +
-      'A barra mostra a parte das partidas que a pessoa venceu. Jogo rápido conta só a vitória.</div></div>';
-    h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS</div>';
-    st.matches.slice(0, 5).forEach(function (m) {
+      'A barra mostra a parte das partidas que a pessoa venceu. Jogo rápido conta só a vitória.' +
+      (st.periodo === 'geral' ? '' : ' Aqui só contam as partidas ' + periodoNo(st.periodo) + '. ' + periodoRegra(st.periodo)) + '</div></div>';
+    h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS' + (st.periodo === 'geral' ? '' : ' ' + periodoNo(st.periodo).toUpperCase()) + '</div>';
+    ms.slice(0, 5).forEach(function (m) {
       var aWon = m.jogos_a > m.jogos_b, pl = placar(m);
       var line = m.rapido
         ? nameOf(aWon ? m.jogador_a : m.jogador_b) + ' venceu ' + nameOf(aWon ? m.jogador_b : m.jogador_a)
@@ -1519,7 +1609,7 @@
           : nameOf(m.jogador_b) + '  ' + pl[1] + ' x ' + pl[0] + '  ' + nameOf(m.jogador_a);
       h += '<div class="note">' + esc(line) + (m.rapido ? ' <span class="rapido-tag">RÁPIDO</span>' : '') + '</div>';
     });
-    if (st.loaded && !st.matches.length) h += '<div class="note dim">Nenhuma partida registrada.</div>';
+    if (st.loaded && !ms.length) h += '<div class="note dim">Nenhuma partida registrada' + (st.periodo === 'geral' ? '' : ' ' + periodoNo(st.periodo)) + '.</div>';
     h += '</div></div><div class="grow"></div>';
     return h + '</section>';
   }
@@ -1669,6 +1759,12 @@
       }
       case 'fp':
         set({ firstPick: Number(v) });
+        break;
+      case 'periodo':
+        if (!PERIODOS[v]) break;
+        savePeriodo(v);
+        set({ periodo: v });
+        view.scrollTop = 0;
         break;
       case 'modo':
         saveModo(v);
@@ -1827,6 +1923,7 @@
   st.eu = loadEu();
   st.regra = loadRegra(); st.regraTxt = regraTexto(st.regra);
   st.modo = loadModo();
+  st.periodo = loadPeriodo();
   maybeTutorial();
   render();
   checkSession();
