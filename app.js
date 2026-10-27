@@ -600,34 +600,39 @@
   }
 
   /* ---------- pato ----------
-     Quem perdeu PATO_MIN partidas ou mais para o mesmo adversário e nunca ganhou dele
-     vira "pato" desse adversário. Conta tudo o que já está no histórico (partidas com pontos e jogos rápidos).
-     Deixa de ser pato na primeira vitória contra ele. */
-  var PATO_MIN = 5;
+     Cada período tem os seus patos: quem perdeu PATO_MIN[período] partidas ou mais para o mesmo
+     adversário DENTRO do período, sem ganhar dele no período, vira "pato" desse adversário.
+     O pato do GERAL conta todo o histórico; o de HOJE, só as partidas de hoje; e assim por diante.
+     Conta partidas com pontos e jogos rápidos. Deixa de ser pato na primeira vitória contra ele no período.
+     Os patos aparecem só no Ranking (faixa no topo) e nos confrontos do Histórico, conforme o período escolhido. */
+  var PATO_MIN = { geral: 5, mes: 4, semana: 3, dia: 2 };
   var DUCK = '<svg class="pato-svg" viewBox="0 0 11 10" shape-rendering="crispEdges" aria-hidden="true">' +
     '<path fill="#ffd84a" d="M4 0h3v1h-3zM3 1h5v1h-5zM3 2h2v1h-2zM6 2h2v1h-2zM3 3h5v1h-5zM4 4h4v1h-4zM0 5h1v1h-1zM2 5h8v1h-8zM0 6h10v2h-10zM1 8h8v1h-8zM2 9h6v1h-6z"/>' +
     '<path fill="#fff6c2" d="M4 1h1v1h-1z"/><path fill="#050a1c" d="M5 2h1v1h-1z"/>' +
     '<path fill="#ff8a1e" d="M8 2h2v1h-2zM8 3h3v1h-3z"/><path fill="#d9a514" d="M3 6h4v1h-4zM4 7h3v1h-3z"/></svg>';
   // lista de patos: { pato, dono, derrotas }, quem mais apanhou primeiro
-  function patos() {
+  function patos(per) {
+    per = PATO_MIN[per] ? per : 'geral';
+    var min = PATO_MIN[per];
     var ativos = {};
     st.players.forEach(function (p) { ativos[p.id] = true; });
     var out = [];
-    pairs().forEach(function (p) {
+    pairs(partidasDo(per)).forEach(function (p) {
       if (!ativos[p.a] || !ativos[p.b]) return;
-      if (p.winsA === 0 && p.winsB >= PATO_MIN) out.push({ pato: p.a, dono: p.b, derrotas: p.winsB });
-      else if (p.winsB === 0 && p.winsA >= PATO_MIN) out.push({ pato: p.b, dono: p.a, derrotas: p.winsA });
+      if (p.winsA === 0 && p.winsB >= min) out.push({ pato: p.a, dono: p.b, derrotas: p.winsB });
+      else if (p.winsB === 0 && p.winsA >= min) out.push({ pato: p.b, dono: p.a, derrotas: p.winsA });
     });
     return out.sort(function (x, y) { return y.derrotas - x.derrotas || nameOf(x.pato).localeCompare(nameOf(y.pato)); });
   }
   function patoFrase(x) { return nameOf(x.pato) + ' É PATO DO ' + nameOf(x.dono); }
-  // faixa no topo, com borda verde: um pato por linha
-  function patoBanner(lista) {
-    var h = '<div class="pato-box" aria-label="Patos do placar">';
+  function patoQuando(per) { return per === 'dia' ? 'hoje' : per === 'semana' ? 'na semana' : per === 'mes' ? 'no mês' : 'no confronto'; }
+  // faixa no topo do Ranking, com borda verde: um pato por linha, do período escolhido
+  function patoBanner(lista, per) {
+    var h = '<div class="pato-box" role="group" aria-label="Patos ' + (per === 'geral' ? 'do placar' : periodoNo(per)) + '">';
     lista.slice(0, 3).forEach(function (x) {
       h += '<div class="pato-linha">' + DUCK +
         '<span class="pato-txt"><span class="pato-frase">' + esc(patoFrase(x)) + '</span>' +
-        '<span class="vt pato-sub">' + x.derrotas + ' x 0 no confronto</span></span></div>';
+        '<span class="vt pato-sub">' + x.derrotas + ' x 0 ' + patoQuando(per) + '</span></span></div>';
     });
     if (lista.length > 3) h += '<div class="vt pato-mais">+ ' + (lista.length - 3) + ' pato' + (lista.length - 3 > 1 ? 's' : '') + ' no Histórico</div>';
     return h + '</div>';
@@ -640,9 +645,6 @@
     }
     var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('jogadores', 'JOGADORES') + '</nav>';
     if (st.tab !== 'partida') bar += liveBadge();
-    // patos no topo de todas as telas, menos com o placar ao vivo aberto (a mesa precisa do espaço)
-    var lista = st.loaded ? patos() : [];
-    if (lista.length && !(st.tab === 'partida' && (st.playing || st.live))) bar += patoBanner(lista);
     if (st.netErr) bar += '<div class="net" role="status">SEM CONEXÃO COM O PLACAR ONLINE · TENTANDO DE NOVO</div>';
     return bar;
   }
@@ -1203,10 +1205,10 @@
       '<div class="lbl">JOGADOR</div></div>';
     h += '<div class="box profile-head">' +
       '<div class="profile-name rgb glow">' + esc(nome) + '</div>';
-    // é pato de alguém? tem patos?
-    patos().forEach(function (x) {
-      if (x.pato === id) h += '<div class="pato-tag">' + DUCK + '<span>É PATO DO ' + esc(nameOf(x.dono)) + ' · ' + x.derrotas + ' x 0</span></div>';
-      else if (x.dono === id) h += '<div class="pato-tag dono">' + DUCK + '<span>' + esc(nameOf(x.pato)) + ' É PATO DELE · ' + x.derrotas + ' x 0</span></div>';
+    // é pato de alguém no geral? tem patos no geral?
+    patos('geral').forEach(function (x) {
+      if (x.pato === id) h += '<div class="pato-tag">' + DUCK + '<span>É PATO DO ' + esc(nameOf(x.dono)) + ' · ' + x.derrotas + ' x 0 no geral</span></div>';
+      else if (x.dono === id) h += '<div class="pato-tag dono">' + DUCK + '<span>' + esc(nameOf(x.pato)) + ' É PATO DELE · ' + x.derrotas + ' x 0 no geral</span></div>';
     });
     if (st.renAberto) {
       // qualquer pessoa troca o apelido, sem senha (admins só pela área admin)
@@ -1283,9 +1285,9 @@
     var list = pairs(ms).filter(function (p) { return !filtro || p.a === filtro || p.b === filtro; });
     var ptsPer = stats(ms);
     function ptsDe(id) { return ptsPer[id] ? ptsPer[id].v : 0; }
-    // pato vale pelo histórico inteiro, mesmo olhando só um período
+    // pato do período escolhido
     var patoDe = {};
-    patos().forEach(function (x) { patoDe[Math.min(x.pato, x.dono) + '-' + Math.max(x.pato, x.dono)] = x; });
+    patos(st.periodo).forEach(function (x) { patoDe[Math.min(x.pato, x.dono) + '-' + Math.max(x.pato, x.dono)] = x; });
     var h = '<section>';
     h += periodoToggle();
     if (st.periodo !== 'geral') h += '<div class="vt periodo-info">' + esc(rg.texto) + (rg.encerrada ? ' · semana encerrada' : '') + '</div>';
@@ -1543,6 +1545,9 @@
 
     var h = '<section>';
     h += periodoToggle();
+    // patos do período escolhido, só aqui no Ranking
+    var listaPatos = st.loaded ? patos(st.periodo) : [];
+    if (listaPatos.length) h += patoBanner(listaPatos, st.periodo);
     if (flash) {
       h += '<div class="win-news" role="status"><span class="plus blink">+1</span>' +
         '<span>' + esc(nameOf(flash.winner)) + ' venceu ' + esc(nameOf(flash.loser)) + ' ' + esc(flash.como) + '</span></div>';
@@ -1598,7 +1603,9 @@
     }
     h += '<div class="legend">Ordem: quem tem mais vitórias. Empatou? Fica na frente quem ganhou mais jogos do que perdeu. ' +
       'A barra mostra a parte das partidas que a pessoa venceu. Jogo rápido conta só a vitória.' +
-      (st.periodo === 'geral' ? '' : ' Aqui só contam as partidas ' + periodoNo(st.periodo) + '. ' + periodoRegra(st.periodo)) + '</div></div>';
+      (st.periodo === 'geral' ? '' : ' Aqui só contam as partidas ' + periodoNo(st.periodo) + '. ' + periodoRegra(st.periodo)) +
+      ' Pato' + (st.periodo === 'geral' ? '' : ' ' + periodoNo(st.periodo)) + ': perdeu ' + PATO_MIN[st.periodo] + ' partidas ou mais para o mesmo adversário' +
+      (st.periodo === 'geral' ? ' e nunca ganhou dele.' : ' sem ganhar dele ' + periodoNo(st.periodo) + '.') + '</div></div>';
     h += '<div class="stack"><div class="lbl">ÚLTIMAS PARTIDAS' + (st.periodo === 'geral' ? '' : ' ' + periodoNo(st.periodo).toUpperCase()) + '</div>';
     ms.slice(0, 5).forEach(function (m) {
       var aWon = m.jogos_a > m.jogos_b, pl = placar(m);
