@@ -30,7 +30,8 @@
     tab: 'partida',
     players: [], names: {}, matches: [],
     seenMatches: null,   // ids de partidas já conhecidas (null até a primeira carga)
-    winTap: 0,           // fim de jogo: até quando vale o 2º toque no vencedor
+    winTap: 0,
+    rapTap: 0,           // jogo rápido: até quando vale o 2º toque no lado de quem venceu           // fim de jogo: até quando vale o 2º toque no vencedor
     winFlash: null,      // { match, winner, loser, until } — destaque do vencedor recém-salvo
     loaded: false, netErr: false, busy: false,
     // ninguém precisa entrar para jogar. "me" é só o login de admin (apelido + PIN), usado no painel.
@@ -922,12 +923,13 @@
       return '<div class="prep-lado vazio' + (next ? ' proximo' : '') + '"><div class="vaga">' + tag +
         '<span class="' + (next ? 'blink ' : '') + 'prep-msg">' + (next ? 'TOQUE NUM NOME' : '---') + '</span></div></div>';
     }
-    var dica = rapido ? 'toque se venceu' : 'toque para sacar';
+    var dica = rapido ? '2 toques se venceu' : 'toque para sacar';
     var inner = tag + '<span class="prep-nm">' + esc(nameOf(id)) + '</span>' +
-      (marcado ? (rapido ? winTag() : serveTag('SACA PRIMEIRO')) : (pronto ? '<span class="prep-msg">' + dica + '</span>' : '')) + ball;
+      (marcado ? (rapido ? winTag() + '<span class="prep-msg rap-dica">' + (st.busy ? 'REGISTRANDO...' : (st.rapTap && Date.now() < st.rapTap ? 'MAIS 1 TOQUE!' : '2 toques = registrar')) + '</span>'
+        : serveTag('SACA PRIMEIRO')) : (pronto ? '<span class="prep-msg">' + dica + '</span>' : '')) + ball;
     if (!pronto) return '<div class="prep-lado">' + inner + '</div>';
     var cls = 'prep-lado tap' + (rapido ? ' escolhe-vencedor' : '') + (rapido && marcado ? ' venceu' : '') + (rapido && st.vencedor && !marcado ? ' perdeu' : '');
-    var label = esc(nameOf(id)) + (rapido ? (marcado ? ' venceu' : ': toque se venceu') : (marcado ? ' saca primeiro' : ': toque para sacar primeiro'));
+    var label = esc(nameOf(id)) + (rapido ? (marcado ? ' venceu. Toque de novo para registrar' : ': dois toques se venceu') : (marcado ? ' saca primeiro' : ': toque para sacar primeiro'));
     return '<button class="' + cls + '" type="button" data-act="' + (rapido ? 'vence' : 'fp') + '" data-v="' + n + '" aria-pressed="' + marcado + '"' +
       ' aria-label="' + label + '">' + inner + '</button>';
   }
@@ -965,7 +967,7 @@
     } else if (st.players.length) {
       var dica = p.length < 2 ? 'Toque em 2 jogadores. O primeiro vira o 1P.'
         : !rapido ? 'Toque no lado da mesa de quem vai sacar primeiro.'
-        : st.vencedor ? 'Confira e toque em REGISTRAR VITÓRIA.' : 'Toque no lado da mesa de quem venceu.';
+        : 'Toque 2 vezes no lado da mesa de quem venceu para registrar.';
       h += '<div class="note prep-dica">' + dica + '</div>';
       h += '<div class="scroll roster">';
       st.players.forEach(function (pl) {
@@ -1229,8 +1231,8 @@
             '<div class="ob-qside win"><span class="ob-qwin">VENCEU</span><span>RAIO</span>' + obTap(1) + '</div>' +
             '<div class="ob-qnet"></div>' +
             '<div class="ob-qside"><span>TROVÃO</span></div></div>' +
-          '<div class="ob-start">REGISTRAR VITÓRIA</div></div>',
-        text: 'Não quer marcar ponto a ponto? Na aba Partida, toque em JOGO RÁPIDO, escolha os 2 jogadores, toque no lado da mesa de quem venceu e em REGISTRAR VITÓRIA. A vitória vai direto para o ranking. Errou? Dá para desfazer por 2 minutos.' },
+          '<div class="ob-start">2× NO LADO DE QUEM VENCEU</div></div>',
+        text: 'Não quer marcar ponto a ponto? Na aba Partida, toque em JOGO RÁPIDO, escolha os 2 jogadores, toque 2 vezes no lado da mesa de quem venceu. A vitória vai direto para o ranking. Errou? Dá para desfazer por 2 minutos.' },
       { title: '1 TOQUE = PONTO',
         art: obBoard(obCard('1P', 'RAIO', '06', obTap(1) + '<span class="ob-fx plus">+1</span>'), obCard('2P', 'TROVÃO', '04')),
         text: 'Durante o jogo, toque uma vez no placar de quem fez o ponto. Aparece um +1 verde.' },
@@ -2064,9 +2066,15 @@
         saveModo(v);
         set({ modo: v, vencedor: 0, startErr: '', regraAberta: false });
         break;
-      case 'vence':
-        set({ vencedor: st.vencedor === Number(v) ? 0 : Number(v), startErr: '' });
+      case 'vence': {
+        // jogo rápido: 2 toques no lado de quem venceu registram a vitória. 1 toque só marca (nunca registra sozinho)
+        var lado = Number(v);
+        if (st.busy) break;
+        if (st.vencedor === lado && st.rapTap && Date.now() < st.rapTap) { st.rapTap = 0; registerQuick(); break; }
+        set({ vencedor: lado, startErr: '', rapTap: Date.now() + WIN_TAP_MS });
+        setTimeout(function () { if (st.rapTap && Date.now() >= st.rapTap) { st.rapTap = 0; render(); } }, WIN_TAP_MS + 30);
         break;
+      }
       case 'start':
         startMatch();
         break;
