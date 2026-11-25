@@ -638,12 +638,268 @@
     return h + '</div>';
   }
 
+  /* ---------- lagoa ----------
+     Aba LAGOA: uma lagoa em pixel com os patos de HOJE nadando, cada um com o nome em cima,
+     taboas (as plantinhas com a "salsicha" marrom na ponta) na beirada e uma fila de filhotes passeando.
+     Pato de hoje = o mesmo pato do Ranking no período HOJE (PATO_MIN.dia derrotas para o mesmo adversário
+     hoje, sem ganhar dele hoje). A lagoa é montada uma vez só e fica guardada: o render() só a recoloca
+     na tela, então os patos não voltam para o lugar a cada atualização. Quem move os patos é o laço
+     de animação (requestAnimationFrame), que só roda com a aba LAGOA aberta. */
+  var LG = { w: 120, h: 70, cx: 60, cy: 37, rx: 50, ry: 24 };   // lagoa em "pixels de desenho"
+  var LG_LIM = 0.8;          // até onde (fração do raio da água) os patos nadam
+  var LG_PATO = 11;          // largura do pato com nome, em pixels de desenho
+  var LG_FILHOTE = 6.5;      // largura dos filhotes
+  var LG_FILHOTES = 4;       // fila de filhotes (o primeiro puxa a fila)
+  var lagoa = null;          // { el, patos: { id: pato }, fila: [...], raf, ultimo, dia }
+  var lagoaHtml = null;      // último corpo da aba, para não refazer a tela à toa
+
+  function lgRand(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+  function lgElipse(cx, cy, rx, ry, cor) {
+    var d = '';
+    for (var y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
+      var t = (y + .5 - cy) / ry;
+      if (Math.abs(t) >= 1) continue;
+      var meia = Math.round(rx * Math.sqrt(1 - t * t));
+      if (meia > 0) d += 'M' + (cx - meia) + ' ' + y + 'h' + (meia * 2) + 'v1h-' + (meia * 2) + 'z';
+    }
+    return '<path fill="' + cor + '" d="' + d + '"/>';
+  }
+  function lgPx(cor, pts) { // pts: [[x, y, w, h], ...]
+    return '<path fill="' + cor + '" d="' + pts.map(function (p) {
+      return 'M' + p[0] + ' ' + p[1] + 'h' + (p[2] || 1) + 'v' + (p[3] || 1) + 'h-' + (p[2] || 1) + 'z';
+    }).join('') + '"/>';
+  }
+  // uma taboa: haste, folhas finas e a "salsicha" marrom no alto, com um espetinho em cima
+  function lgTaboa(x, base, alt, lado) {
+    var topo = base - alt, h = '';
+    var folha = [], folha2 = [];
+    for (var i = 0; i < Math.round(alt * .65); i++) {
+      folha.push([x + lado * (1 + Math.floor(i / 4)), base - 1 - i]);
+      if (i < alt * .45) folha2.push([x - lado * (1 + Math.floor(i / 3)), base - 1 - i]);
+    }
+    h += lgPx('#2f8f3c', folha2);
+    h += lgPx('#3a9e3f', [[x, topo + 6, 1, alt - 6]]);                     // haste
+    h += lgPx('#4cc35a', folha);
+    h += lgPx('#3a9e3f', [[x, topo - 2, 1, 2]]);                            // espetinho
+    h += lgPx('#7a4a1e', [[x - 1, topo + 1, 3, 4], [x, topo, 1, 6]]);      // salsicha
+    h += lgPx('#a0662f', [[x - 1, topo + 1, 1, 3]]);                        // brilho
+    h += lgPx('#55320f', [[x + 1, topo + 3, 1, 2]]);                        // sombra
+    return h;
+  }
+  function lgTouceira(x, base, alts) {
+    var h = '', offs = [-3, 1, 4, -1, 3];
+    alts.forEach(function (a, i) { h += lgTaboa(x + offs[i % offs.length], base + (i % 2), a, i % 2 ? 1 : -1); });
+    return h;
+  }
+  function lgBeira(ang) { // ponto na beirada da água (graus; 0 = direita, 90 = embaixo)
+    var r = ang * Math.PI / 180;
+    return { x: Math.round(LG.cx + (LG.rx + 1) * Math.cos(r)), y: Math.round(LG.cy + (LG.ry + 1) * Math.sin(r)) };
+  }
+  function lgFundo() {
+    var rnd = lgRand(7), h = '', c = LG;
+    h += '<rect width="' + c.w + '" height="' + c.h + '" fill="#0f3a1f"/>';
+    var tufo = [], tufo2 = [];
+    for (var i = 0; i < 170; i++) {
+      var x = Math.floor(rnd() * c.w), y = Math.floor(rnd() * c.h);
+      (i % 3 ? tufo : tufo2).push([x, y, 1, 1], [x + 1, y - 1, 1, 1]);
+    }
+    h += lgPx('#17552c', tufo) + lgPx('#22703a', tufo2);
+    h += lgElipse(c.cx, c.cy + 1, c.rx + 5, c.ry + 4, '#1d6b35');            // grama da beirada
+    h += lgElipse(c.cx, c.cy + 1, c.rx + 3, c.ry + 2, '#6b4a2b');            // barro
+    h += lgElipse(c.cx, c.cy + 1, c.rx + 2, c.ry + 1, '#4f3520');
+    h += lgElipse(c.cx, c.cy, c.rx, c.ry, '#3d8bf0');                         // água rasa (borda clara)
+    h += lgElipse(c.cx, c.cy + 1, c.rx - 1, c.ry - 1, '#2470e0');
+    h += lgElipse(c.cx + 2, c.cy + 2, Math.round(c.rx * .78), Math.round(c.ry * .68), '#1d5fcc');
+    h += lgElipse(c.cx + 3, c.cy + 3, Math.round(c.rx * .46), Math.round(c.ry * .38), '#1a52b4');
+    // pedras
+    h += lgPx('#8a93a8', [[13, 52, 3, 2], [101, 20, 2, 2], [107, 49, 3, 2]]) + lgPx('#5d6478', [[13, 54, 3, 1], [101, 22, 2, 1], [107, 51, 3, 1]]);
+    // vitórias-régias
+    [[34, 44], [83, 30], [72, 52]].forEach(function (p, i) {
+      h += lgPx('#2fa35a', [[p[0] - 2, p[1], 5, 1], [p[0] - 3, p[1] + 1, 7, 1], [p[0] - 2, p[1] + 2, 5, 1]]);
+      h += lgPx('#2470e0', [[p[0], p[1], 1, 2]]);
+      if (i === 1) h += lgPx('#ff8fc8', [[p[0] + 1, p[1], 2, 1]]) + lgPx('#fff2a8', [[p[0] + 2, p[1], 1, 1]]);
+    });
+    // brilhos na água (piscam)
+    [[30, 24], [52, 20], [78, 22], [44, 50], [90, 42], [60, 34], [24, 36]].forEach(function (p, i) {
+      h += '<rect class="lg-brilho" style="animation-delay:-' + (i * .73).toFixed(2) + 's" x="' + p[0] + '" y="' + p[1] + '" width="' + (i % 2 ? 3 : 4) + '" height="1" fill="#a9d0ff"/>';
+    });
+    // taboas de trás (beirada de cima e laterais)
+    [[-160, [11, 14, 9]], [-128, [13, 10]], [-70, [10, 13, 8, 12]], [-30, [12, 9, 14]], [-6, [9, 12]], [186, [10, 13]]].forEach(function (t) {
+      var b = lgBeira(t[0]); h += lgTouceira(b.x, b.y, t[1]);
+    });
+    return h;
+  }
+  function lgFrente() { // taboas da frente (beirada de baixo): ficam na frente dos patos
+    var h = '';
+    [[160, [12, 15, 10]], [122, [11, 14]], [64, [13, 10, 15]], [24, [11, 14, 9]]].forEach(function (t) {
+      var b = lgBeira(t[0]); h += lgTouceira(b.x, b.y + 3, t[1]);
+    });
+    return h;
+  }
+  // sprite: o mesmo patinho das outras telas, com a marolinha embaixo
+  var LG_SPRITE = '<svg viewBox="0 0 13 12" shape-rendering="crispEdges" aria-hidden="true"><g class="lg-boia">' +
+    '<g transform="translate(1 0)">' + DUCK.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '') + '</g></g>' +
+    '<path class="lg-onda" fill="#a9d0ff" d="M0 10h3v1h-3zM10 10h3v1h-3zM3 11h7v1h-7z"/></svg>';
+
+  function lgSorteia(rnd, lim) {
+    var a = rnd() * Math.PI * 2, r = lim * Math.sqrt(rnd());
+    return { x: LG.cx + Math.cos(a) * r * LG.rx, y: LG.cy + Math.sin(a) * r * LG.ry };
+  }
+  function lgNovo(grande, nome) {
+    var p = lgSorteia(Math.random, LG_LIM);
+    var el = document.createElement('div');
+    el.className = 'lg-pato' + (grande ? '' : ' filhote');
+    el.innerHTML = LG_SPRITE;
+    el.querySelector('.lg-boia').style.animationDelay = '-' + (Math.random() * 2).toFixed(2) + 's';
+    var pato = { x: p.x, y: p.y, alvo: lgSorteia(Math.random, LG_LIM), pausa: Math.random() * 2,
+                 vel: 3 + Math.random() * 2.5, esq: Math.random() < .5, el: el, nomeEl: null, larg: grande ? LG_PATO : LG_FILHOTE };
+    el.style.width = (pato.larg / LG.w * 100) + '%';
+    if (nome !== undefined) {
+      pato.nomeEl = document.createElement('div');
+      pato.nomeEl.className = 'lg-nome';
+    }
+    return pato;
+  }
+  function lgPos(p) {
+    p.el.style.left = (p.x / LG.w * 100) + '%';
+    p.el.style.top = (p.y / LG.h * 100) + '%';
+    p.el.classList.toggle('esq', p.esq);
+    if (p.nomeEl) {
+      p.nomeEl.style.left = (p.x / LG.w * 100) + '%';
+      p.nomeEl.style.top = ((p.y - p.larg * 12 / 13 - 1) / LG.h * 100) + '%';
+    }
+  }
+  function lgDentro(x, y, lim) {
+    var u = (x - LG.cx) / LG.rx, v = (y - LG.cy) / LG.ry, r = Math.sqrt(u * u + v * v);
+    if (r <= lim) return { x: x, y: y };
+    return { x: LG.cx + u / r * lim * LG.rx, y: LG.cy + v / r * lim * LG.ry };
+  }
+
+  function lagoaMontar() {
+    var el = document.createElement('div');
+    el.className = 'lagoa';
+    el.setAttribute('role', 'img');
+    var vb = '0 0 ' + LG.w + ' ' + LG.h;
+    el.innerHTML = '<svg class="lg-fundo" viewBox="' + vb + '" preserveAspectRatio="none" shape-rendering="crispEdges" aria-hidden="true">' + lgFundo() + '</svg>' +
+      '<div class="lg-camada lg-patos"></div>' +
+      '<svg class="lg-frente" viewBox="' + vb + '" preserveAspectRatio="none" shape-rendering="crispEdges" aria-hidden="true">' + lgFrente() + '</svg>' +
+      '<div class="lg-camada lg-nomes"></div>';
+    lagoa = { el: el, camada: el.querySelector('.lg-patos'), nomes: el.querySelector('.lg-nomes'), patos: {}, fila: [], raf: 0, ultimo: 0, checa: 0 };
+    for (var i = 0; i < LG_FILHOTES; i++) {
+      var f = lgNovo(false);
+      if (i) { var lider = lagoa.fila[i - 1]; f.x = lider.x - 5; f.y = lider.y; }
+      lagoa.fila.push(f); lagoa.camada.appendChild(f.el); lgPos(f);
+    }
+  }
+
+  // põe na lagoa quem é pato hoje e tira quem deixou de ser
+  function lagoaSync(lista) {
+    var quer = {}, nomes = [];
+    lista.forEach(function (x) { if (!quer[x.pato]) { quer[x.pato] = true; nomes.push(nameOf(x.pato)); } });
+    Object.keys(lagoa.patos).forEach(function (id) {
+      if (quer[id]) return;
+      var p = lagoa.patos[id];
+      p.el.remove(); p.nomeEl.remove(); delete lagoa.patos[id];
+    });
+    Object.keys(quer).forEach(function (id) {
+      var p = lagoa.patos[id];
+      if (!p) {
+        p = lagoa.patos[id] = lgNovo(true, nameOf(Number(id)));
+        lagoa.camada.appendChild(p.el); lagoa.nomes.appendChild(p.nomeEl);
+      }
+      var nm = nameOf(Number(id));
+      if (p.nomeEl.textContent !== nm) p.nomeEl.textContent = nm;
+      lgPos(p);
+    });
+    lagoa.el.setAttribute('aria-label', nomes.length
+      ? 'Lagoa com ' + nomes.length + (nomes.length > 1 ? ' patos' : ' pato') + ' de hoje nadando: ' + nomes.join(', ')
+      : 'Lagoa vazia de patos hoje, só com os filhotes nadando');
+  }
+
+  function lgAnda(p, dt, rnd) {
+    if (p.pausa > 0) { p.pausa -= dt; return; }
+    var dx = p.alvo.x - p.x, dy = p.alvo.y - p.y, d = Math.sqrt(dx * dx + dy * dy);
+    if (d < .6) { p.alvo = lgSorteia(rnd, LG_LIM); p.pausa = .4 + rnd() * 2.6; return; }
+    var passo = Math.min(d, p.vel * dt);
+    p.x += dx / d * passo; p.y += dy / d * passo;
+    if (Math.abs(dx) > .3) p.esq = dx < 0;
+  }
+  function lagoaQuadro(agora) {
+    if (!lagoa) return;
+    lagoa.raf = 0;
+    if (st.tab !== 'lagoa' || !document.body.contains(lagoa.el)) return;
+    var dt = lagoa.ultimo ? Math.min(.1, (agora - lagoa.ultimo) / 1000) : 0;
+    lagoa.ultimo = agora;
+    var ids = Object.keys(lagoa.patos), todos = ids.map(function (id) { return lagoa.patos[id]; });
+    todos.forEach(function (p) { lgAnda(p, dt, Math.random); });
+    // patos com nome não se amontoam: um empurra o outro de leve
+    for (var i = 0; i < todos.length; i++) for (var j = i + 1; j < todos.length; j++) {
+      var a = todos[i], b = todos[j], dx = b.x - a.x, dy = (b.y - a.y) * 1.6, d = Math.sqrt(dx * dx + dy * dy) || .01;
+      if (d < 13) { var k = (13 - d) * .5 * dt * 3; a.x -= dx / d * k; b.x += dx / d * k; a.y -= dy / d * k / 1.6; b.y += dy / d * k / 1.6; }
+    }
+    todos.forEach(function (p) { var q = lgDentro(p.x, p.y, LG_LIM); p.x = q.x; p.y = q.y; lgPos(p); });
+    // fila de filhotes: o primeiro passeia, os outros vão atrás
+    var fila = lagoa.fila;
+    lgAnda(fila[0], dt, Math.random);
+    lgPos(fila[0]);
+    for (var n = 1; n < fila.length; n++) {
+      var f = fila[n], l = fila[n - 1], fx = f.x - l.x, fy = f.y - l.y, fd = Math.sqrt(fx * fx + fy * fy) || .01;
+      if (fd > 5) { var nx = l.x + fx / fd * 5, ny = l.y + fy / fd * 5; if (Math.abs(nx - f.x) > .02) f.esq = nx < f.x; f.x = nx; f.y = ny; }
+      lgPos(f);
+    }
+    // virou o dia com a aba aberta: refaz a lagoa com os patos do novo dia
+    if (agora - lagoa.checa > 10000) {
+      lagoa.checa = agora;
+      if (periodoRange('dia').ini !== lagoa.dia) { render(); return; }
+    }
+    lagoaLaco();
+  }
+  function lagoaLaco() {
+    if (!lagoa || lagoa.raf || document.hidden) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    lagoa.raf = requestAnimationFrame(lagoaQuadro);
+  }
+  // depois do render(): encaixa a lagoa guardada no lugar dela e liga o laço
+  function lagoaEncaixar() {
+    if (st.tab !== 'lagoa') { if (lagoa && lagoa.raf) { cancelAnimationFrame(lagoa.raf); lagoa.raf = 0; } return; }
+    if (!lagoa) lagoaMontar();
+    var host = document.getElementById('lagoaHost');
+    if (host) host.replaceWith(lagoa.el);
+    lagoa.dia = periodoRange('dia').ini;
+    lagoaSync(st.loaded ? patos('dia') : []);
+    lagoa.ultimo = 0;
+    lagoaLaco();
+  }
+  document.addEventListener('visibilitychange', function () { if (lagoa) { lagoa.ultimo = 0; lagoaLaco(); } });
+
+  function viewLagoa() {
+    var lista = st.loaded ? patos('dia') : [];
+    var h = '<section class="lagoa-sec">';
+    h += '<div class="lagoa-topo"><span class="lagoa-tit">LAGOA DOS PATOS</span><span class="vt lagoa-data">' + esc(periodoRange('dia').texto) + '</span></div>';
+    h += '<div id="lagoaHost" class="lagoa"></div>';
+    if (!st.loaded) h += '<div class="note dim">CARREGANDO A LAGOA...</div>';
+    else if (!lista.length) h += '<div class="box lagoa-vazia"><span class="note">Ninguém virou pato hoje. Por enquanto, só os filhotes nadam na lagoa.</span></div>';
+    else {
+      h += '<div class="pato-box" role="group" aria-label="Patos de hoje">';
+      lista.forEach(function (x) {
+        h += '<div class="pato-linha">' + DUCK +
+          '<span class="pato-txt"><span class="pato-frase">' + esc(patoFrase(x)) + '</span>' +
+          '<span class="vt pato-sub">' + x.derrotas + ' x 0 hoje</span></span></div>';
+      });
+      h += '</div>';
+    }
+    h += '<div class="legend">Vai para a lagoa quem perdeu ' + PATO_MIN.dia + ' partidas ou mais hoje para o mesmo adversário, sem ganhar dele. ' +
+      'Sai na primeira vitória contra ele. A lagoa esvazia à meia-noite.</div>';
+    return h + '</section>';
+  }
+
+  var LAGOA_TAB = '<span class="tab-pato" aria-hidden="true">' + DUCK + '</span><span class="tab-txt">LAGOA</span>';
   function tabs() {
     function t(id, label) {
       var on = st.tab === id || (id === 'jogadores' && st.tab === 'admin');
-      return '<button class="tab' + (on ? ' on' : '') + '" type="button" data-act="tab" data-v="' + id + '">' + label + '</button>';
+      return '<button class="tab' + (on ? ' on' : '') + (id === 'lagoa' ? ' tab-lagoa' : '') + '" type="button" data-act="tab" data-v="' + id + '"' + (id === 'lagoa' ? ' aria-label="Lagoa dos patos"' : '') + '>' + label + '</button>';
     }
-    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('jogadores', 'JOGADORES') + '</nav>';
+    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('jogadores', 'JOGADORES') + t('lagoa', LAGOA_TAB) + '</nav>';
     if (st.tab !== 'partida') bar += liveBadge();
     if (st.netErr) bar += '<div class="net" role="status">SEM CONEXÃO COM O PLACAR ONLINE · TENTANDO DE NOVO</div>';
     return bar;
@@ -950,15 +1206,16 @@
       { title: 'BEM-VINDO À DISPUTA!',
         art: '<div class="ob-hero">' + ART.paddle + '<span class="ob-ball bounce"></span>' + '<svg class="ob-paddle flip" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true"><use href="#paddle"></use></svg></div>',
         text: 'Este é o placar de ping-pong da Elsys. Em poucos passos você aprende a marcar pontos, acompanhar jogos ao vivo e subir no ranking.' },
-      { title: 'AS 4 ABAS',
+      { title: 'AS 5 ABAS',
         art: '<div class="ob-tabs-art">' +
-          '<div class="ob-tabrow"><span class="on">PARTIDA</span><span>RANKING</span><span>HISTÓRICO</span><span>JOGADORES</span></div>' +
+          '<div class="ob-tabrow"><span class="on">PARTIDA</span><span>RANKING</span><span>HISTÓRICO</span><span>JOGADORES</span><span>LAGOA</span></div>' +
           '<ul class="ob-list">' +
             '<li><b>PARTIDA</b> iniciar e acompanhar jogos</li>' +
             '<li><b>RANKING</b> quem mais vence: geral, hoje, na semana e no mês</li>' +
             '<li><b>HISTÓRICO</b> quem ganha de quem</li>' +
-            '<li><b>JOGADORES</b> os números de cada um</li></ul></div>',
-        text: 'Tudo fica nessas quatro abas, no topo da tela. Toque em uma para trocar.' },
+            '<li><b>JOGADORES</b> os números de cada um</li>' +
+            '<li><b>LAGOA</b> os patos de hoje nadando</li></ul></div>',
+        text: 'Tudo fica nessas cinco abas, no topo da tela. Toque em uma para trocar.' },
       { title: 'INICIAR UMA PARTIDA',
         art: '<div class="ob-setup">' +
           '<div class="ob-chips"><span class="ob-chip on">RAIO <i>1P</i></span><span class="ob-chip on">TROVÃO <i>2P</i></span>' +
@@ -1635,6 +1892,7 @@
     else if (st.tab === 'historico') body = viewHistorico();
     else if (st.tab === 'jogadores') body = viewJogadores();
     else if (st.tab === 'admin') body = st.me ? viewAdmin() : viewAdminLogin();
+    else if (st.tab === 'lagoa') body = viewLagoa();
     else body = (st.playing || st.live) ? viewBoard() : viewSetup();
     // a tela se atualiza sozinha; quem está digitando não perde o texto nem o cursor
     var act = document.activeElement;
@@ -1643,7 +1901,11 @@
     try { caret = typingId ? act.selectionStart : null; } catch (e) {}
     var scroll = view.scrollTop;
     tabbar.innerHTML = bar;
-    view.innerHTML = body;
+    // na lagoa, se nada mudou na tela, não refaz nada: os patos seguem nadando sem tropeço
+    var mesmaLagoa = st.tab === 'lagoa' && body === lagoaHtml && lagoa && view.contains(lagoa.el);
+    if (!mesmaLagoa) view.innerHTML = body;
+    lagoaHtml = st.tab === 'lagoa' ? body : null;
+    lagoaEncaixar();
     if (footRegra) footRegra.textContent = (st.playing || st.live) ? regraResumo(game().regra) : 'REGRAS ESCOLHIDAS A CADA PARTIDA';
     view.scrollTop = scroll;
     var tut = st.onb !== null;
