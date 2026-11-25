@@ -714,3 +714,11 @@ nav.tabs { display: flex; flex: none; }
 @media (max-width: 460px) {
   .tab { padding: 0 2px; letter-spacing: 0; font-size: min(var(--fs-sm), 2.05vw); }
 }
+
+/* ---------- fim de jogo: 2 toques no vencedor (aparelho que marca) ---------- */
+.board.mesa .player.tap.vence, .player.vence { box-shadow: inset 0 0 0 calc(var(--border) * 1.6) var(--green), 0 0 3vmin rgba(57,255,122,.35); }
+.board.mesa .player.vence .tag, .player.vence .tag { color: var(--green); }
+.player.perdeu { opacity: .45; }
+.fim-dica { margin-top: .5em; padding: .55em .8em; font-size: var(--fs-sm); letter-spacing: .06em; line-height: 1.3; color: #050a1c; background: var(--green);
+  animation: blk 1s steps(1, end) infinite; }
+@media (prefers-reduced-motion: reduce) { .fim-dica { animation: none; } }
