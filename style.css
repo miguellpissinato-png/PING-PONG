@@ -722,3 +722,5 @@ nav.tabs { display: flex; flex: none; }
 .fim-dica { margin-top: .5em; padding: .55em .8em; font-size: var(--fs-sm); letter-spacing: .06em; line-height: 1.3; color: #050a1c; background: var(--green);
   animation: blk 1s steps(1, end) infinite; }
 @media (prefers-reduced-motion: reduce) { .fim-dica { animation: none; } }
+.prep-lado.venceu .rap-dica { color: var(--green); animation: blk 1s steps(1, end) infinite; }
+@media (prefers-reduced-motion: reduce) { .prep-lado.venceu .rap-dica { animation: none; } }
