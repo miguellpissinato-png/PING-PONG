@@ -30,6 +30,7 @@
     tab: 'partida',
     players: [], names: {}, matches: [],
     seenMatches: null,   // ids de partidas já conhecidas (null até a primeira carga)
+    winTap: 0,           // fim de jogo: até quando vale o 2º toque no vencedor
     winFlash: null,      // { match, winner, loser, until } — destaque do vencedor recém-salvo
     loaded: false, netErr: false, busy: false,
     // ninguém precisa entrar para jogar. "me" é só o login de admin (apelido + PIN), usado no painel.
@@ -329,7 +330,8 @@
   }
 
   /* Quando aparece uma partida salva que este aparelho ainda não conhecia, o vencedor ganha destaque
-     no ranking e quem estava acompanhando a partida é levado para a aba Ranking. */
+     (+1 piscando no topo da Partida e do Ranking). Ninguém muda de aba: quem está na Partida
+     continua nela, pronto para começar a próxima. */
   var FLASH_MS = 15000;
   function noticeNewMatch(matches) {
     if (st.seenMatches === null) {
@@ -344,7 +346,6 @@
     var aWon = m.jogos_a > m.jogos_b;
     st.winFlash = { match: m.id, winner: aWon ? m.jogador_a : m.jogador_b, loser: aWon ? m.jogador_b : m.jogador_a,
                     como: comoVenceu(m), until: Date.now() + FLASH_MS };
-    if (st.tab === 'partida' && !st.playing) st.tab = 'ranking';
     setTimeout(function () { if (st.winFlash && Date.now() >= st.winFlash.until) { st.winFlash = null; render(); } }, FLASH_MS + 50);
   }
 
@@ -514,7 +515,8 @@
       saveOwner(null);
       st.busy = false;
       set({ playing: false, hist: [], g1: 0, g2: 0, pts1: 0, pts2: 0, quitArm: false, live: null,
-            tab: salvar ? 'ranking' : 'partida' });
+            tab: 'partida' });
+      view.scrollTop = 0;
       refresh(); refreshLive();
     }).catch(function (err) {
       if (err.code === 'sem_permissao' || err.code === 'partida_encerrada') {
@@ -550,7 +552,7 @@
         setTimeout(function () {
           if (st.rapidoFeito && Date.now() >= st.rapidoFeito.until) { st.rapidoFeito = null; st.rapidoArm = false; render(); }
         }, UNDO_MS + 100);
-        set({ picked: [], vencedor: 0, firstPick: 1, novo: false, tab: 'ranking' });
+        set({ picked: [], vencedor: 0, firstPick: 1, novo: false, tab: 'partida' });
         view.scrollTop = 0;
         refresh();
       })
@@ -948,6 +950,7 @@
   function viewSetup() {
     var p = st.picked, rapido = st.modo === 'rapido';
     var h = '<section>';
+    h += avisosVitoria();
     h += modoToggle();
     h += '<div class="board mesa prep' + (rapido ? ' rapido' : '') + '">' +
       '<div class="mesa-linha" aria-hidden="true"></div>' +
@@ -1075,20 +1078,22 @@
       '<path fill="' + shine + '" d="' + PADDLE_SHINE + '"/><path fill="#e0a868" d="M6 13h2v6h-2z"/></svg>';
   }
 
-  function playerCard(n, name, score, gp, serving, lock, control, jogos) {
+  // fim: 'salvar' ou 'proximo' no cartão de quem venceu (só no aparelho que marca)
+  function playerCard(n, name, score, gp, serving, lock, control, jogos, fim) {
     // bolinhas de jogos vencidos: só quando a partida tem mais de um jogo
     var pips = '';
     for (var i = 0; i < jogos; i++) pips += '<div class="pip' + (i < gp ? ' on' : '') + '"></div>';
     var inner =
-      '<div class="tag">' + n + 'P' + (control ? ' · 1 TOQUE +1 · 2 TOQUES −1' : '') + '</div>' +
+      '<div class="tag">' + n + 'P' + (fim ? ' · VENCEU' : control && !lock ? ' · 1 TOQUE +1 · 2 TOQUES −1' : '') + '</div>' +
       '<div class="nm-row"><span class="nm">' + esc(name) + '</span>' + (serving ? serveTag() : '') + '</div>' +
       '<div class="score-row"><div class="rgb glow digits">' + pad(score) + '</div></div>' +
-      (jogos > 1 ? '<div class="meta"><div class="games"><span class="vt">JOGOS</span>' + pips + '</div></div>' : '');
+      (jogos > 1 ? '<div class="meta"><div class="games"><span class="vt">JOGOS</span>' + pips + '</div></div>' : '') +
+      (fim ? '<div class="fim-dica">' + (st.busy ? 'SALVANDO...' : (st.winTap && Date.now() < st.winTap ? 'MAIS 1 TOQUE!' : '2 TOQUES = ' + (fim === 'salvar' ? 'SALVAR VITÓRIA' : 'PRÓXIMO JOGO'))) + '</div>' : '');
     var fx = st.tapFx && st.tapFx.v === n && Date.now() < st.tapFx.until
       ? '<span class="tap-fx' + (st.tapFx.minus ? ' minus' : '') + '" aria-hidden="true">' + st.tapFx.text + '</span>' : '';
     if (!control) return '<div class="box player p' + n + '">' + inner + '</div>';
-    return '<button class="box player tap p' + n + '" type="button" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') +
-      ' aria-label="' + esc(name) + ', ' + score + ' pontos. Um toque marca ponto, dois toques tiram um ponto.">' + inner + fx + '</button>';
+    return '<button class="box player tap p' + n + (fim ? ' vence' : '') + (lock ? ' perdeu' : '') + '" type="button" data-act="add" data-v="' + n + '"' + (lock ? ' disabled' : '') +
+      ' aria-label="' + esc(name) + ', ' + score + ' pontos. ' + (fim ? 'Venceu. Dois toques ' + (fim === 'salvar' ? 'salvam a vitória no ranking' : 'vão para o próximo jogo') + '.' : 'Um toque marca ponto, dois toques tiram um ponto.') + '">' + inner + fx + '</button>';
   }
 
   function viewBoard() {
@@ -1108,10 +1113,10 @@
     } else if (g.s1 > 0) sub = 'Empate em ' + g.s1 + ' · saque: ' + (g.server === 1 ? g.name1 : g.name2);
     var gp1 = !g.w && g.wins(g.s1 + 1, g.s2), gp2 = !g.w && g.wins(g.s2 + 1, g.s1);
     if (g.w && g.champ) {
-      title = 'FIM DA DISPUTA';
+      title = control ? 'TOQUE 2× NO VENCEDOR' : 'FIM DA DISPUTA';
       sub = g.wName + ' venceu ' + (r.jogos === 1 ? hi + ' a ' + lo : 'por ' + Math.max(g.gp1, g.gp2) + ' a ' + Math.min(g.gp1, g.gp2));
     }
-    else if (g.w) { title = 'FIM DE JOGO'; sub = g.wName + ' venceu ' + hi + ' a ' + lo; }
+    else if (g.w) { title = control ? 'FIM DE JOGO · 2× NO VENCEDOR' : 'FIM DE JOGO'; sub = g.wName + ' venceu ' + hi + ' a ' + lo; }
     else if (gp1 && gp2) { title = 'PONTO DECISIVO'; sub = 'Quem fizer o próximo ponto vence'; }
     else if (r.vantagem && g.s1 === g.s2 && g.s1 >= r.pontos - 1 && g.s1 > 0) { title = 'IGUALDADE'; sub = 'Quem abrir 2 pontos vence'; }
     else if (gp1) { title = 'PONTO DE JOGO'; sub = 'Vantagem: ' + g.name1; }
@@ -1124,23 +1129,17 @@
       '<span class="vt who-marks">' + (control ? '1 toque no placar = ponto · 2 toques rápidos = tira ponto' : 'Só quem iniciou a partida marca os pontos') + '</span></div>';
     h += '<div class="board mesa">';
     h += '<div class="mesa-linha" aria-hidden="true"></div>';
-    h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, !!g.w, control, r.jogos);
+    var fim = control && g.w ? (g.champ ? 'salvar' : 'proximo') : '';
+    h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, control ? (!!g.w && g.w !== 1) : !!g.w, control, r.jogos, g.w === 1 ? fim : '');
     h += '<div class="rede" aria-hidden="true"></div>';
-    h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, !!g.w, control, r.jogos);
+    h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, control ? (!!g.w && g.w !== 2) : !!g.w, control, r.jogos, g.w === 2 ? fim : '');
     h += tablePaddle('r1', '#060a1d', '#e8283a', '#ff8f97') + tablePaddle('r2', '#c9d4ff', '#1b1f2e', '#4a5275');
-    if (g.w) {
+    if (g.w && !control) {
       h += '<div class="banner">' +
         '<div class="kicker">' + (g.champ ? 'CAMPEÃO DA DISPUTA' : 'VENCEDOR DO JOGO') + '</div>' +
         '<div class="rgb glow who">' + esc(g.wName) + '</div>' +
         '<div class="score">' + (g.champ && r.jogos > 1 ? ('JOGOS ' + g.gp1 + ' x ' + g.gp2) : (pad(g.s1) + ' x ' + pad(g.s2))) + '</div>';
-      if (control) {
-        h += '<div class="row center">' +
-            '<button class="btn ghost" type="button" data-act="undo">DESFAZER</button>' +
-            '<button class="btn go" type="button" data-act="banner"' + (st.busy ? ' disabled' : '') + '>' + (g.champ ? (st.busy ? 'SALVANDO...' : 'SALVAR NO RANKING') : 'PRÓXIMO JOGO') + '</button>' +
-          '</div>' + (st.saveErr ? '<div class="err">' + esc(st.saveErr) + '</div>' : '');
-      } else {
-        h += '<div class="note dim blink">' + (g.champ ? 'Aguardando salvar no ranking...' : 'Aguardando o próximo jogo...') + '</div>';
-      }
+      h += '<div class="note dim blink">' + (g.champ ? 'Aguardando salvar no ranking...' : 'Aguardando o próximo jogo...') + '</div>';
       h += '</div>';
     }
     h += '</div>';
@@ -1155,6 +1154,7 @@
       h += '<div class="row center actions"><button class="btn ghost warn" type="button" data-act="release">LIBERAR PLACAR</button></div>';
     }
     h += '</div>';
+    if (control && st.saveErr) h += '<div class="err" role="alert">' + esc(st.saveErr) + '</div>';
     if (st.syncErr) h += '<div class="err" role="alert">' + esc(st.syncErr) + '</div>';
     if (stale) h += '<div class="legend">Ninguém marca ponto há mais de 20 minutos. Libere o placar para iniciar outra partida.</div>';
     return h + '</section>';
@@ -1243,11 +1243,11 @@
         text: 'Quem não está marcando acompanha o placar em tempo real, em qualquer celular ou TV. Enquanto uma partida está ao vivo, ninguém inicia outra.' },
       { title: 'FIM DE JOGO E RANKING',
         art: '<div class="ob-rank">' +
-          '<div class="ob-save">SALVAR NO RANKING' + obTap(1) + '</div>' +
+          '<div class="ob-save">2× NO VENCEDOR' + obTap(2) + '</div>' +
           '<div class="ob-rkrow won"><span>1º</span><span class="n">RAIO</span><span class="pts"><i>+1</i> 5</span></div>' +
           '<div class="ob-rkrow"><span>2º</span><span class="n">TROVÃO</span><span class="pts">4</span></div>' +
           '<div class="ob-rkrow"><span>3º</span><span class="n">FAÍSCA</span><span class="pts">2</span></div></div>',
-        text: 'Cada partida tem as regras que vocês escolherem: até quantos pontos, vantagem de 2 no empate, vitória direta e quantos jogos. Quando acabar, toque em SALVAR NO RANKING. Cada vitória vale 1 ponto e todo mundo vê na hora. No topo do Ranking, troque entre GERAL, HOJE, SEMANA (segunda a sexta) e MÊS: cada período começa do zero, então todo mundo tem chance de chegar ao topo.' },
+        text: 'Cada partida tem as regras que vocês escolherem: até quantos pontos, vantagem de 2 no empate, vitória direta e quantos jogos. Quando acabar, toque 2 vezes no placar de quem venceu para salvar no ranking. O placar volta para a mesa, pronto para a próxima partida. Cada vitória vale 1 ponto e todo mundo vê na hora. No topo do Ranking, troque entre GERAL, HOJE, SEMANA (segunda a sexta) e MÊS: cada período começa do zero, então todo mundo tem chance de chegar ao topo.' },
       { title: 'HISTÓRICO E JOGADORES',
         art: '<div class="ob-hp">' +
           '<div class="ob-pair"><span class="lead">RAIO</span><span class="sc">3 x 1</span><span>TROVÃO</span></div>' +
@@ -1795,16 +1795,10 @@
       '<div class="pod-bloco">' + n + '</div></div>';
   }
 
-  function viewRanking() {
-    var flash = st.winFlash && Date.now() < st.winFlash.until ? st.winFlash : null;
-    var per = PERIODOS[st.periodo], ms = partidasDo(st.periodo), rg = periodoRange(st.periodo);
-    var rows = rankRows(ms); // pontos no ranking: 1 por vitória, só nas partidas do período
-
-    var h = '<section>';
-    h += periodoToggle();
-    // patos do período escolhido, só aqui no Ranking
-    var listaPatos = st.loaded ? patos(st.periodo) : [];
-    if (listaPatos.length) h += patoBanner(listaPatos, st.periodo);
+  /* vitória recém-salva (+1 piscando), DESFAZER do jogo rápido e avisos curtos.
+     Aparecem no topo do Ranking e também na tela de Partida, onde todo mundo fica depois de salvar. */
+  function avisosVitoria() {
+    var h = '', flash = st.winFlash && Date.now() < st.winFlash.until ? st.winFlash : null;
     if (flash) {
       h += '<div class="win-news" role="status"><span class="plus blink">+1</span>' +
         '<span>' + esc(nameOf(flash.winner)) + ' venceu ' + esc(nameOf(flash.loser)) + ' ' + esc(flash.como) + '</span></div>';
@@ -1817,6 +1811,20 @@
         (st.busy ? 'DESFAZENDO...' : (st.rapidoArm ? 'CONFIRMAR?' : 'DESFAZER')) + '</button></div>';
     }
     if (st.rankMsg && Date.now() < st.rankMsg.until) h += '<div class="err" role="alert">' + esc(st.rankMsg.text) + '</div>';
+    return h;
+  }
+
+  function viewRanking() {
+    var flash = st.winFlash && Date.now() < st.winFlash.until ? st.winFlash : null;
+    var per = PERIODOS[st.periodo], ms = partidasDo(st.periodo), rg = periodoRange(st.periodo);
+    var rows = rankRows(ms); // pontos no ranking: 1 por vitória, só nas partidas do período
+
+    var h = '<section>';
+    h += periodoToggle();
+    // patos do período escolhido, só aqui no Ranking
+    var listaPatos = st.loaded ? patos(st.periodo) : [];
+    if (listaPatos.length) h += patoBanner(listaPatos, st.periodo);
+    h += avisosVitoria();
 
     // quem já jogou entra no pódio e na lista; quem nunca jogou fica separado, no fim
     var jogaram = rows.filter(function (r) { return r.j > 0; });
@@ -1956,6 +1964,23 @@
     pendingTap = { v: v, timer: setTimeout(function () { pendingTap = null; addPoint(v); }, DOUBLE_TAP_MS) };
   }
 
+  /* ---------- fim de jogo: 2 toques no vencedor ----------
+     Acabou o jogo, o cartão de quem venceu fica destacado. Dois toques nele (dentro de WIN_TAP_MS)
+     salvam a vitória no ranking (ou vão para o próximo jogo, se a partida tem mais jogos).
+     O primeiro toque só avisa "MAIS 1 TOQUE!". Errou o último ponto? DESFAZER PONTO continua embaixo. */
+  var WIN_TAP_MS = 700;
+  function winTap(g) {
+    if (st.busy) return;
+    if (st.winTap && Date.now() < st.winTap) { st.winTap = 0; finishGame(g); return; }
+    st.winTap = Date.now() + WIN_TAP_MS;
+    render();
+    setTimeout(function () { if (st.winTap && Date.now() >= st.winTap) { st.winTap = 0; render(); } }, WIN_TAP_MS + 30);
+  }
+  function finishGame(g) {
+    if (g.champ) endMatch(true, g);
+    else { set({ hist: [], g1: g.gp1, g2: g.gp2, pts1: st.pts1 + g.s1, pts2: st.pts2 + g.s2, first: g.w }); push(); }
+  }
+
   /* ---------- ações ---------- */
   function onClick(e) {
     var el = e.target.closest('[data-act]');
@@ -2068,7 +2093,8 @@
         st.regra.direto = v === '1'; saveRegra(); set({ startErr: '' });
         break;
       case 'add':
-        if (!control || g.w) return;
+        if (!control) return;
+        if (g.w) { if (Number(v) === g.w) winTap(g); return; }
         tapScore(Number(v), el);
         break;
       case 'sub':
@@ -2077,12 +2103,11 @@
         break;
       case 'undo':
         if (!control) return;
-        set({ hist: st.hist.slice(0, -1) }); push();
+        set({ hist: st.hist.slice(0, -1), winTap: 0, saveErr: '' }); push();
         break;
       case 'banner':
         if (!control) return;
-        if (g.champ) endMatch(true, g);
-        else { set({ hist: [], g1: g.gp1, g2: g.gp2, pts1: st.pts1 + g.s1, pts2: st.pts2 + g.s2, first: g.w }); push(); }
+        finishGame(g);
         break;
       case 'resetPoints':
         if (!control) return;
