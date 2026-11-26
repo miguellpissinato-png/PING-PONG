@@ -130,3 +130,17 @@ nav.tabs { gap: 4px; }
   .title { font-size: calc(var(--fs-lg) * .72); }
   .hdr { padding: calc(var(--gap-s) * .3) 0 calc(var(--gap-s) * .5); }
 }
+
+/* números legíveis: fonte de fliperama de traço reto (o 2 e o 3 não se confundem),
+   cor chapada e sombra dura em vez de brilho borrado; sem linhas de varredura por cima */
+.scan { display: none; }
+.digits, .pod-num, .tile .num, .ob-digits, .rl-num, .tap-fx, .placar-num {
+  font-family: 'Press Start 2P', 'Courier New', monospace; font-weight: 400; letter-spacing: 0;
+  -webkit-font-smoothing: none; font-smooth: never; }
+.digits { font-size: calc(var(--digits) * .82); color: #ffffff; text-shadow: 0 .07em 0 #061417; }
+.mesa .digits { text-shadow: 0 .07em 0 rgba(4,16,18,.7); }
+.pod-num { font-size: calc(var(--fs-lg) * .5); text-shadow: 0 .1em 0 #061417; }
+.pod1 .pod-num { font-size: calc(var(--fs-lg) * .68); color: #ffffff; text-shadow: 0 .1em 0 #7a4a12; }
+.tile .num { font-size: calc(var(--fs-lg) * .7); }
+.tile .num.win { color: var(--lanterna-luz); text-shadow: 0 .1em 0 #061417; }
+.glow, .rgb { text-shadow: 0 .06em 0 #061417; }
