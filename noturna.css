@@ -1,0 +1,132 @@
+/* Lagoa Noturna — camada de tema por cima de style.css.
+   Noite verde-azulada, pedra e musgo, lanternas de papel acesas. A tela ficou calma:
+   sem tremidas nem falhas de imagem; só uma linha de varredura bem leve.
+   Personagens em pixel art (personagens/*.gif) em todas as telas e menu embaixo, com ícones. */
+:root {
+  --ground: #061417;
+  --screen: #0b2126;
+  --line: #2f6a66;
+  --line-2: #2a5d59;
+  --ink: #e8f5f0;
+  --ink-dim: #a9c8bf;
+  --ink-mute: #8fb5aa;
+  --ink-soft: #cfe6df;
+  --green: #5ee6c4;
+  --red: #ff6f7d;
+  --amarelo: #ffb347;          /* lanterna */
+  --lanterna: #ffb347;
+  --lanterna-luz: #ffcf7a;
+  --musgo: #4f8f4f;
+  --sakura: #f6a9c6;
+  --pedra: #123239;
+  --mesa: #1f5f52;
+}
+
+/* tela: sem os efeitos de fliperama quebrado */
+#screen { background: radial-gradient(120% 80% at 50% 0%, #10303a 0%, var(--screen) 55%, #081a1e 100%);
+  box-shadow: inset 0 0 0 var(--border) var(--line), inset 0 0 12vmin rgba(0,8,10,.55), 0 0 0 calc(var(--border) * 2) #071a1e; }
+.fx .jitter, .fx .rgb, .fx .scan { animation: none; }
+.scan { background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 3px, rgba(0,8,10,.12) 3px 5px); }
+.glow, .rgb { text-shadow: 0 0 16px rgba(255,179,71,.35); }
+
+/* caixas viram blocos de pedra com uma linha de musgo em cima */
+.box { background: var(--pedra); box-shadow: inset 0 0 0 max(2px, calc(var(--border) * .6)) var(--line), inset 0 calc(var(--border) * 1.1) 0 var(--musgo); }
+.lbl { color: var(--lanterna); letter-spacing: .1em; }
+
+/* cabeçalho: título no meio de duas lanternas acesas, pétalas caindo */
+.hdr { position: relative; padding: calc(var(--gap-s) * .6) 0 calc(var(--gap-s) * .9); border-bottom: calc(var(--border) * .7) solid var(--musgo); }
+.title { font-weight: 700; letter-spacing: .08em; color: var(--ink); text-shadow: 0 .08em 0 #061417, 0 0 22px rgba(255,179,71,.3); }
+.subtitle { color: var(--lanterna); letter-spacing: .2em; text-transform: lowercase; }
+.lanterna { position: absolute; top: 22%; width: clamp(12px, 3vmin, 34px); height: clamp(17px, 4.2vmin, 48px);
+  background: var(--lanterna-luz); box-shadow: inset 0 0 0 calc(var(--border) * .8) #5a2a14, 0 0 clamp(18px, 5vmin, 60px) clamp(4px, 1.2vmin, 14px) rgba(255,179,71,.35);
+  animation: lanterna 3.2s ease-in-out infinite; }
+.lanterna::before { content: ''; position: absolute; left: 50%; top: -60%; width: 2px; height: 60%; background: #3a2a22; }
+.lanterna::after { content: ''; position: absolute; left: 15%; right: 15%; top: 30%; height: 2px; background: rgba(90,42,20,.55); box-shadow: 0 clamp(5px, 1.3vmin, 15px) 0 rgba(90,42,20,.55); }
+.lanterna.l1 { left: 4%; }
+.lanterna.l2 { right: 4%; animation-delay: -1.6s; }
+@keyframes lanterna { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.15); } }
+.petalas { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.petalas i { position: absolute; top: -10%; width: 5px; height: 4px; background: var(--sakura); opacity: .85; animation: petala 9s linear infinite; }
+.petalas i:nth-child(1) { left: 18%; animation-delay: 0s; }
+.petalas i:nth-child(2) { left: 34%; animation-delay: -3s; animation-duration: 11s; }
+.petalas i:nth-child(3) { left: 52%; animation-delay: -6s; }
+.petalas i:nth-child(4) { left: 66%; animation-delay: -1.5s; animation-duration: 12s; }
+.petalas i:nth-child(5) { left: 80%; animation-delay: -7.5s; }
+.petalas i:nth-child(6) { left: 90%; animation-delay: -4.5s; animation-duration: 10s; }
+@keyframes petala { 0% { transform: translate(0, 0) rotate(0); } 50% { transform: translate(-14px, 260%) rotate(160deg); } 100% { transform: translate(6px, 520%) rotate(320deg); opacity: 0; } }
+
+/* menu embaixo, com ícones; a aba aberta acende como lanterna */
+#tabbar { order: 99; margin: 0 calc(var(--pad) * -1) calc(var(--pad) * -1); padding: 0 var(--pad) calc(var(--pad) * .6); background: #07181c; border-top: calc(var(--border) * .7) solid var(--line); }
+nav.tabs { gap: 4px; }
+.tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .35em; border: 0; min-height: calc(var(--tap) * 1.15);
+  font-weight: 500; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--ink-dim); text-transform: none; }
+.tab-ico { width: calc(var(--fs-sm) * 1.5); height: calc(var(--fs-sm) * 1.5); flex: none; }
+.tab:hover { color: var(--ink); }
+.tab.on { color: var(--lanterna); background: var(--pedra); box-shadow: inset 0 calc(var(--border) * .9) 0 var(--lanterna), 0 -6px 18px rgba(255,179,71,.18); }
+.tab-lagoa { flex: 1; gap: .35em; flex-direction: column; }
+.tab-lagoa .tab-txt { display: inline; }
+.tab-pato .pato-svg { width: calc(var(--fs-sm) * 1.6); height: calc(var(--fs-sm) * 1.45); }
+@media (max-width: 600px) { .tab-lagoa { flex: 1; padding: 0; } .tab-lagoa .tab-txt { display: inline; } }
+@media (max-width: 460px) { .tab { padding: 0 1px; letter-spacing: 0; font-size: min(var(--fs-xs), 3vw); } }
+.foot { color: #6f9a8f; }
+
+/* botões e opções: pedra; o principal acende como lanterna */
+.btn { font-weight: 700; background: var(--pedra); color: var(--ink); border-radius: 2px;
+  box-shadow: inset 0 0 0 max(2px, calc(var(--border) * .6)) var(--line), 0 calc(var(--border) * .8) 0 #061417; }
+.btn:hover { background: #18434b; }
+.btn:active { transform: translateY(2px); box-shadow: inset 0 0 0 max(2px, calc(var(--border) * .6)) var(--line); }
+.btn.go { background: var(--lanterna); color: #1a1006; box-shadow: inset 0 0 0 max(2px, calc(var(--border) * .6)) #ffd9a0, 0 calc(var(--border) * .8) 0 #7a4a12, 0 0 22px rgba(255,179,71,.3); }
+.btn.go:hover { background: #ffc266; }
+.btn.ghost { background: transparent; color: var(--ink-soft); box-shadow: inset 0 0 0 max(2px, calc(var(--border) * .6)) var(--line); }
+.btn.ghost:hover { color: var(--ink); box-shadow: inset 0 0 0 max(2px, calc(var(--border) * .6)) var(--lanterna); }
+.opt { font-weight: 500; background: #0a2328; color: var(--ink-soft); }
+.opt.on { background: #2a2412; color: var(--lanterna); box-shadow: inset 0 0 0 max(2px, calc(var(--border) * .6)) var(--lanterna), 0 0 16px rgba(255,179,71,.25); }
+.field { font-family: 'Pixelify Sans', 'Courier New', monospace; background: #0a2328; caret-color: var(--lanterna); }
+.vs { background: var(--sakura); color: #2a0f1c; font-weight: 700; }
+
+/* personagens: GIF 24x32 ampliado sem borrar */
+.spr { display: block; flex: none; image-rendering: pixelated; image-rendering: crisp-edges; width: auto; aspect-ratio: 3 / 4; object-fit: contain; }
+.spr.vira { transform: scaleX(-1); }
+.spr-xs { height: clamp(30px, 5.4vmin, 54px); }
+.spr-sm { height: clamp(40px, 7vmin, 72px); }
+.spr-md { height: clamp(64px, 13vmin, 150px); }
+.spr-board { height: clamp(56px, 12vmin, 170px); filter: drop-shadow(0 4px 0 rgba(4,16,18,.45)); }
+.spr-pod { height: clamp(56px, 11vmin, 130px); }
+.spr-pod1 { height: clamp(72px, 15vmin, 180px); filter: drop-shadow(0 0 14px rgba(255,179,71,.35)); }
+.chip .spr { margin: -6px 0; }
+.roster .opt.chip { min-height: calc(var(--tap) * 1.15); }
+.prep-lado .spr { margin-bottom: -.2em; }
+.vsrow.com-spr { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; }
+.eu-card .spr { margin-bottom: -.3em; }
+
+/* nível e XP: 1 nível a cada 10 vitórias */
+.xp { display: inline-flex; align-items: center; gap: .45em; font-family: 'VT323', 'Courier New', monospace; font-size: var(--vt-sm); color: var(--lanterna); white-space: nowrap; letter-spacing: 0; }
+.xp-barra { display: inline-block; width: 4.2em; height: .5em; background: #061417; box-shadow: inset 0 0 0 2px var(--line); }
+.xp-barra span { display: block; height: 100%; background: var(--green); box-shadow: 0 0 8px rgba(94,230,196,.5); }
+.jog-list .badge { display: flex; }
+
+/* perfil: o personagem grande no dojo com lanternas */
+.perfil-cena { width: min(100%, 22em); aspect-ratio: 1; overflow: hidden; background: #0c1620; box-shadow: inset 0 0 0 max(2px, calc(var(--border) * .6)) var(--line), 0 0 30px rgba(255,179,71,.15); }
+.perfil-cena img { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+.profile-name { font-weight: 700; }
+.tile .num { font-weight: 700; color: var(--ink); }
+.tile .num.win { color: var(--lanterna-luz); text-shadow: 0 0 14px rgba(255,179,71,.45); }
+
+/* placar e pódio */
+.digits { font-weight: 700; }
+.mesa .player .tag { color: #e3f2ec; }
+.pod-num, .pod1 .pod-num { font-weight: 700; }
+.pod1 .pod-nome { color: var(--lanterna-luz); }
+.pod1 .pod-bloco { background: var(--lanterna); box-shadow: inset 0 calc(var(--border) * -2) 0 #b8701f, 0 0 26px rgba(255,179,71,.35); }
+.pod2 .pod-bloco { background: #9fc9bd; box-shadow: inset 0 calc(var(--border) * -2) 0 #6f9a8f; }
+.pod3 .pod-bloco { background: #d9a27a; box-shadow: inset 0 calc(var(--border) * -2) 0 #9c6a45; }
+.rl-barra span { background: var(--green); }
+
+@media (prefers-reduced-motion: reduce) { .lanterna, .petalas i { animation: none !important; } .petalas { display: none; } }
+
+/* notebook deitado: cabeçalho mais baixo para sobrar espaço para o placar */
+@media (orientation: landscape) and (max-height: 820px) {
+  .subtitle { display: none; }
+  .title { font-size: calc(var(--fs-lg) * .72); }
+  .hdr { padding: calc(var(--gap-s) * .3) 0 calc(var(--gap-s) * .5); }
+}

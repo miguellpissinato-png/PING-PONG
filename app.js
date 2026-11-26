@@ -896,13 +896,44 @@
     return h + '</section>';
   }
 
-  var LAGOA_TAB = '<span class="tab-pato" aria-hidden="true">' + DUCK + '</span><span class="tab-txt">LAGOA</span>';
+  /* ---------- personagens ----------
+     Cada jogador tem um boneco em pixel art (GIF animado, pasta personagens/), escolhido pelo nome.
+     Nome sem boneco próprio (jogador novo, nome trocado) usa o ENCAPUZADO.
+     Para dar um boneco a um nome novo: desenhe em personagens/fonte/desenhos.py, rode gerar.py
+     e acrescente o nome em PERSONAGENS. */
+  var PERSONAGENS = {
+    'SUSHIMAN': 'sushiman', 'BUMBLEBEE': 'bumblebee', 'BAIANO': 'baiano', 'MEGALOTRON': 'megalotron',
+    'SANSAO': 'sansao', 'KAMIKAZE': 'kamikaze', 'BAILA VINI': 'baila-vini', 'REVERSO': 'reverso', 'BOMBEIRA': 'bombeira'
+  };
+  function semAcento(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim(); }
+  function persona(id) { return PERSONAGENS[semAcento(nameOf(id))] || 'encapuzado'; }
+  // boneco do jogador; cls muda o tamanho (spr-xs, spr-sm, spr-md, spr-lg); vira = olhando para a esquerda
+  function spr(id, cls, vira) {
+    return '<img class="spr ' + (cls || 'spr-sm') + (vira ? ' vira' : '') + '" src="personagens/' + persona(id) + '.gif" alt="" width="24" height="32" decoding="async">';
+  }
+  // nível: 1 a cada 10 vitórias no geral; a barra mostra quanto falta para o próximo
+  function nivel(v) { return { n: Math.floor(v / 10) + 1, pct: (v % 10) * 10 }; }
+  function xpBar(v) {
+    var nv = nivel(v);
+    return '<span class="xp" title="' + (10 - v % 10) + ' vitória(s) para o próximo nível"><span class="xp-nv">Nv ' + nv.n + '</span>' +
+      '<span class="xp-barra" aria-hidden="true"><span style="width:' + Math.max(nv.pct, 6) + '%"></span></span></span>';
+  }
+  var ICONES = {
+    partida: '<circle cx="10" cy="10" r="6"/><path d="M14.5 14.5 20 20"/>',
+    ranking: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+    historico: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+    jogadores: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5"/><path d="M16 5a3 3 0 0 1 0 6M18 15c2 1 3 3 3 5"/>'
+  };
+  function icone(k) { return '<svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONES[k] + '</svg>'; }
+
+  var LAGOA_TAB = '<span class="tab-pato" aria-hidden="true">' + DUCK + '</span><span class="tab-txt">Lagoa</span>';
   function tabs() {
     function t(id, label) {
       var on = st.tab === id || (id === 'jogadores' && st.tab === 'admin');
-      return '<button class="tab' + (on ? ' on' : '') + (id === 'lagoa' ? ' tab-lagoa' : '') + '" type="button" data-act="tab" data-v="' + id + '"' + (id === 'lagoa' ? ' aria-label="Lagoa dos patos"' : '') + '>' + label + '</button>';
+      return '<button class="tab' + (on ? ' on' : '') + (id === 'lagoa' ? ' tab-lagoa' : '') + '" type="button" data-act="tab" data-v="' + id + '"' + (id === 'lagoa' ? ' aria-label="Lagoa dos patos"' : '') + (on ? ' aria-current="page"' : '') + '>' + label + '</button>';
     }
-    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', 'PARTIDA') + t('ranking', 'RANKING') + t('historico', 'HISTÓRICO') + t('jogadores', 'JOGADORES') + t('lagoa', LAGOA_TAB) + '</nav>';
+    var bar = '<nav class="tabs" aria-label="Seções do placar">' + t('partida', icone('partida') + '<span class="tab-txt">Partida</span>') + t('ranking', icone('ranking') + '<span class="tab-txt">Ranking</span>') +
+      t('historico', icone('historico') + '<span class="tab-txt">Histórico</span>') + t('jogadores', icone('jogadores') + '<span class="tab-txt">Jogadores</span>') + t('lagoa', LAGOA_TAB) + '</nav>';
     if (st.tab !== 'partida') bar += liveBadge();
     if (st.netErr) bar += '<div class="net" role="status">SEM CONEXÃO COM O PLACAR ONLINE · TENTANDO DE NOVO</div>';
     return bar;
@@ -924,7 +955,7 @@
         '<span class="' + (next ? 'blink ' : '') + 'prep-msg">' + (next ? 'TOQUE NUM NOME' : '---') + '</span></div></div>';
     }
     var dica = rapido ? '2 toques se venceu' : 'toque para sacar';
-    var inner = tag + '<span class="prep-nm">' + esc(nameOf(id)) + '</span>' +
+    var inner = tag + spr(id, 'spr-md', n === 2) + '<span class="prep-nm">' + esc(nameOf(id)) + '</span>' +
       (marcado ? (rapido ? winTag() + '<span class="prep-msg rap-dica">' + (st.busy ? 'REGISTRANDO...' : (st.rapTap && Date.now() < st.rapTap ? 'MAIS 1 TOQUE!' : '2 toques = registrar')) + '</span>'
         : serveTag('SACA PRIMEIRO')) : (pronto ? '<span class="prep-msg">' + dica + '</span>' : '')) + ball;
     if (!pronto) return '<div class="prep-lado">' + inner + '</div>';
@@ -973,11 +1004,8 @@
       st.players.forEach(function (pl) {
         var at = p.indexOf(pl.id);
         var badge = at === 0 ? '1P' : (at === 1 ? '2P' : '');
-        var paddle = at === 0 ? ['#060a1d', '#e8283a'] : at === 1 ? ['#060a1d', '#1b1f2e'] : ['#2b47b8', '#0b1640'];
         h += '<button class="opt chip' + (at >= 0 ? ' on' : '') + '" type="button" data-act="pick" data-v="' + pl.id + '">' +
-          '<svg class="chip-rq" viewBox="0 0 14 20" shape-rendering="crispEdges" aria-hidden="true">' +
-            '<path fill="' + paddle[0] + '" d="' + PADDLE_SHAPE + '"/><path fill="' + paddle[1] + '" d="' + PADDLE_FACE + '"/>' +
-            '<path fill="#e0a868" d="M6 13h2v6h-2z"/></svg>' +
+          spr(pl.id, 'spr-xs') +
           '<span class="nm">' + esc(pl.name) + '</span><span class="badge">' + badge + '</span></button>';
       });
       if (!st.novo) h += '<button class="opt chip novo-chip" type="button" data-act="novoAbrir"><span class="nm">+ NOVO JOGADOR</span></button>';
@@ -1081,12 +1109,13 @@
   }
 
   // fim: 'salvar' ou 'proximo' no cartão de quem venceu (só no aparelho que marca)
-  function playerCard(n, name, score, gp, serving, lock, control, jogos, fim) {
+  function playerCard(n, name, score, gp, serving, lock, control, jogos, fim, id) {
     // bolinhas de jogos vencidos: só quando a partida tem mais de um jogo
     var pips = '';
     for (var i = 0; i < jogos; i++) pips += '<div class="pip' + (i < gp ? ' on' : '') + '"></div>';
     var inner =
       '<div class="tag">' + n + 'P' + (fim ? ' · VENCEU' : control && !lock ? ' · 1 TOQUE +1 · 2 TOQUES −1' : '') + '</div>' +
+      (id ? spr(id, 'spr-board', n === 2) : '') +
       '<div class="nm-row"><span class="nm">' + esc(name) + '</span>' + (serving ? serveTag() : '') + '</div>' +
       '<div class="score-row"><div class="rgb glow digits">' + pad(score) + '</div></div>' +
       (jogos > 1 ? '<div class="meta"><div class="games"><span class="vt">JOGOS</span>' + pips + '</div></div>' : '') +
@@ -1100,7 +1129,7 @@
 
   function viewBoard() {
     var control = st.playing;
-    var g = game(), r = g.regra;
+    var g = game(), r = g.regra, ids = source();
     var hi = Math.max(g.s1, g.s2), lo = Math.min(g.s1, g.s2);
     var title = 'EM JOGO', sub = 'Saque: ' + (g.server === 1 ? g.name1 : g.name2);
     var lider = g.s1 > g.s2 ? g.name1 : g.name2, atras = g.s1 > g.s2 ? g.name2 : g.name1;
@@ -1132,9 +1161,9 @@
     h += '<div class="board mesa">';
     h += '<div class="mesa-linha" aria-hidden="true"></div>';
     var fim = control && g.w ? (g.champ ? 'salvar' : 'proximo') : '';
-    h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, control ? (!!g.w && g.w !== 1) : !!g.w, control, r.jogos, g.w === 1 ? fim : '');
+    h += playerCard(1, g.name1, g.s1, g.gp1, !g.w && g.server === 1, control ? (!!g.w && g.w !== 1) : !!g.w, control, r.jogos, g.w === 1 ? fim : '', ids.m1);
     h += '<div class="rede" aria-hidden="true"></div>';
-    h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, control ? (!!g.w && g.w !== 2) : !!g.w, control, r.jogos, g.w === 2 ? fim : '');
+    h += playerCard(2, g.name2, g.s2, g.gp2, !g.w && g.server === 2, control ? (!!g.w && g.w !== 2) : !!g.w, control, r.jogos, g.w === 2 ? fim : '', ids.m2);
     h += tablePaddle('r1', '#060a1d', '#e8283a', '#ff8f97') + tablePaddle('r2', '#c9d4ff', '#1b1f2e', '#4a5275');
     if (g.w && !control) {
       h += '<div class="banner">' +
@@ -1390,11 +1419,11 @@
   function totalWins(id) { var s = stats()[id]; return s ? s.v : 0; }
 
   // linha "A  3 x 1  B" com o líder em destaque
-  function vsRow(aName, aWins, bName, bWins, big) {
-    return '<div class="vsrow' + (big ? ' big' : '') + '">' +
+  function vsRow(aName, aWins, bName, bWins, big, aId, bId) {
+    return '<div class="vsrow' + (big ? ' big' : '') + (aId ? ' com-spr' : '') + '">' + (aId ? spr(aId, 'spr-xs') : '') +
       '<span class="n left' + (aWins > bWins ? ' lead' : (aWins < bWins ? ' trail' : '')) + '">' + esc(aName) + '</span>' +
       '<span class="sc rgb">' + aWins + ' x ' + bWins + '</span>' +
-      '<span class="n right' + (bWins > aWins ? ' lead' : (bWins < aWins ? ' trail' : '')) + '">' + esc(bName) + '</span></div>';
+      '<span class="n right' + (bWins > aWins ? ' lead' : (bWins < aWins ? ' trail' : '')) + '">' + esc(bName) + '</span>' + (bId ? spr(bId, 'spr-xs', true) : '') + '</div>';
   }
 
   /* ---------- aba Jogadores: todo mundo, sem login ---------- */
@@ -1404,15 +1433,15 @@
     var h = '<section>';
     if (st.eu && st.players.some(function (p) { return p.id === st.eu; })) {
       h += '<button class="box eu-card" type="button" data-act="jog" data-v="' + st.eu + '">' +
-        '<span class="lbl">VOCÊ NESTE APARELHO</span><span class="eu-nm rgb glow">' + esc(st.names[st.eu]) + '</span>' +
+        spr(st.eu, 'spr-md') + '<span class="lbl">VOCÊ NESTE APARELHO</span><span class="eu-nm rgb glow">' + esc(st.names[st.eu]) + '</span>' +
         '<span class="legend">Toque para ver seus números</span></button>';
     }
     h += '<div class="lbl">JOGADORES · ' + rows.length + '</div>';
     h += '<div class="roster jog-list">';
     rows.forEach(function (r, i) {
       h += '<button class="opt chip' + (r.id === st.eu ? ' eu' : '') + '" type="button" data-act="jog" data-v="' + r.id + '">' +
-        '<span class="pos">' + (r.j ? (i + 1) + 'º' : '—') + '</span><span class="nm">' + esc(r.name) + '</span>' +
-        '<span class="badge">' + r.rank + ' V</span></button>';
+        '<span class="pos">' + (r.j ? (i + 1) + 'º' : '—') + '</span>' + spr(r.id, 'spr-xs') + '<span class="nm">' + esc(r.name) + '</span>' +
+        '<span class="badge">' + xpBar(r.rank) + '</span></button>';
     });
     h += '</div>';
     if (!st.loaded) h += '<div class="note dim blink">Carregando jogadores...</div>';
@@ -1463,7 +1492,8 @@
     h += '<div class="row adm-top"><button class="btn ghost" type="button" data-act="jogVoltar">VOLTAR</button>' +
       '<div class="lbl">JOGADOR</div></div>';
     h += '<div class="box profile-head">' +
-      '<div class="profile-name rgb glow">' + esc(nome) + '</div>';
+      '<div class="perfil-cena"><img src="personagens/' + persona(id) + '-perfil.gif" alt="' + esc(nome) + ', personagem em pixel art" width="320" height="320"></div>' +
+      '<div class="profile-name rgb glow">' + esc(nome) + '</div>' + xpBar(mine.rank);
     // é pato de alguém no geral? tem patos no geral?
     patos('geral').forEach(function (x) {
       if (x.pato === id) h += '<div class="pato-tag">' + DUCK + '<span>É PATO DO ' + esc(nameOf(x.dono)) + ' · ' + x.derrotas + ' x 0 no geral</span></div>';
@@ -1498,7 +1528,7 @@
     myPairs.forEach(function (p) {
       var first = p.a === id;
       var opp = first ? p.b : p.a, myW = first ? p.winsA : p.winsB, opW = first ? p.winsB : p.winsA;
-      h += '<div class="box pair">' + vsRow(nome, myW, nameOf(opp), opW) +
+      h += '<div class="box pair">' + vsRow(nome, myW, nameOf(opp), opW, false, id, opp) +
         '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre eles</div></div>';
     });
     if (!myPairs.length) h += '<div class="note dim">Ainda sem partidas. Os confrontos aparecem aqui depois do primeiro jogo.</div>';
@@ -1563,7 +1593,7 @@
       var a = swap ? p.b : p.a, b = swap ? p.a : p.b, wa = swap ? p.winsB : p.winsA, wb = swap ? p.winsA : p.winsB;
       var ta = ptsDe(a), tb = ptsDe(b);
       var pato = patoDe[p.a + '-' + p.b] || null;
-      h += '<div class="box pair' + (pato ? ' tem-pato' : '') + '">' + vsRow(nameOf(a), wa, nameOf(b), wb, true) +
+      h += '<div class="box pair' + (pato ? ' tem-pato' : '') + '">' + vsRow(nameOf(a), wa, nameOf(b), wb, true, a, b) +
         (pato ? '<div class="pato-tag">' + DUCK + '<span>' + esc(patoFrase(pato)) + '</span></div>' : '') +
         '<div class="pair-meta">' + p.count + ' partida' + (p.count > 1 ? 's' : '') + ' entre eles' + (st.periodo === 'geral' ? '' : ' ' + periodoNo(st.periodo)) + ' · última ' + fmtWhen(p.last) + '</div>' +
         '<div class="pair-total">' + per.pts + ': <span class="' + (ta > tb ? 'lead' : '') + '">' + esc(nameOf(a)) + ' ' + ta + ' PTS</span> · ' +
@@ -1789,7 +1819,7 @@
     }
     var won = flash && flash.winner === r.id, isMe = st.eu === r.id;
     return '<div class="pod pod' + n + (won ? ' won' : '') + '" role="listitem" aria-label="' + n + 'º lugar: ' + esc(r.name) + ', ' + vitTxt(r.rank) + ' em ' + r.j + ' partidas">' +
-      (n === 1 ? CROWN : '') +
+      (n === 1 ? CROWN : '') + spr(r.id, n === 1 ? 'spr-pod1' : 'spr-pod') +
       '<span class="pod-nome">' + esc(r.name) + '</span>' +
       (isMe ? '<span class="eu-mini">VOCÊ</span>' : '') +
       '<span class="pod-num">' + (won ? '<span class="plus blink">+1</span>' : '') + r.rank + '</span>' +
@@ -1853,7 +1883,7 @@
           var won = flash && flash.winner === r.id, isMe = st.eu === r.id;
           var pct = Math.round(r.rank / r.j * 100);
           h += '<div class="rl' + (won ? ' won' : '') + (isMe ? ' me' : '') + '" role="listitem">' +
-            '<span class="rl-pos">' + (k + 4) + 'º</span>' +
+            '<span class="rl-pos">' + (k + 4) + 'º</span>' + spr(r.id, 'spr-xs') +
             '<div class="rl-info"><div class="rl-nome"><span class="n">' + esc(r.name) + '</span>' + (isMe ? '<span class="eu-mini">VOCÊ</span>' : '') + '</div>' +
               '<span class="vt rl-resumo">' + vitTxt(r.rank) + ' · ' + r.d + (r.d === 1 ? ' derrota' : ' derrotas') + '</span></div>' +
             '<div class="rl-pct">' + (won ? '<span class="plus blink">+1</span>' : '') + '<span>' + pct + '%</span>' +

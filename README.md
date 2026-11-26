@@ -121,3 +121,11 @@ O endereço do banco e a chave pública ficam no topo do `app.js`. A chave públ
 | `app.js` | Lógica do placar, cadastro e ranking |
 
 Fontes: [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) e [VT323](https://fonts.google.com/specimen/VT323), via Google Fonts.
+
+## Visual: Lagoa Noturna
+
+- Tema noturno (verde-azulado, pedra e musgo, lanternas de papel acesas), fontes Pixelify Sans e VT323. As regras de cor ficam em `noturna.css`, carregado depois de `style.css`.
+- Menu embaixo, com ícones: Partida, Ranking, Histórico, Jogadores e Lagoa.
+- **Personagens:** cada jogador tem um boneco em pixel art animado (GIF) em `personagens/`, escolhido pelo nome: SUSHIMAN, BUMBLEBEE, BAIANO, MEGALOTRON, SANSÃO, KAMIKAZE, BAILA VINI, REVERSO e BOMBEIRA. Nome sem boneco próprio usa o ENCAPUZADO. O boneco aparece na escolha de jogadores, no placar ao vivo, no pódio e na lista do ranking, nos confrontos do histórico, na lista de jogadores e, grande e num dojo com lanternas, no perfil.
+- Para criar ou mudar um boneco: desenhe em `personagens/fonte/desenhos.py` (uma letra por pixel), rode `python3 personagens/fonte/gerar.py` e acrescente o nome em `PERSONAGENS` no `app.js`.
+- **Nível:** 1 nível a cada 10 vitórias no geral, com barra de XP até o próximo, na lista de jogadores e no perfil.
