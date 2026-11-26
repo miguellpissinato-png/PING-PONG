@@ -144,3 +144,11 @@ nav.tabs { gap: 4px; }
 .tile .num { font-size: calc(var(--fs-lg) * .7); }
 .tile .num.win { color: var(--lanterna-luz); text-shadow: 0 .1em 0 #061417; }
 .glow, .rgb { text-shadow: 0 .06em 0 #061417; }
+
+/* confrontos: placar "32 x 30" na fonte de traço reto e nomes em VT323 (as letras pequenas da
+   Pixelify confundiam B com G); destaque de quem lidera sem brilho borrado */
+.vsrow .sc { font-family: 'Press Start 2P', 'Courier New', monospace; font-size: 1.05em; letter-spacing: 0; padding: .55em .6em .45em;
+  -webkit-font-smoothing: none; text-shadow: none; animation: none; }
+.vsrow .n { font-family: 'VT323', 'Courier New', monospace; font-size: 1.5em; letter-spacing: .04em; line-height: 1; }
+.vsrow .lead { color: #ffffff; text-shadow: none; }
+.vsrow .trail { color: var(--ink-dim); }
