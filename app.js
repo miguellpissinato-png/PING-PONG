@@ -905,11 +905,13 @@
     'SUSHIMAN': 'sushiman', 'BUMBLEBEE': 'bumblebee', 'BAIANO': 'baiano', 'MEGALOTRON': 'megalotron',
     'SANSAO': 'sansao', 'KAMIKAZE': 'kamikaze', 'BAILA VINI': 'baila-vini', 'REVERSO': 'reverso', 'BOMBEIRA': 'bombeira'
   };
+  // versão dos desenhos: suba este número sempre que um GIF mudar, para o navegador não mostrar o antigo
+  var PERSONAGENS_V = 2;
   function semAcento(t) { return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim(); }
   function persona(id) { return PERSONAGENS[semAcento(nameOf(id))] || 'encapuzado'; }
   // boneco do jogador; cls muda o tamanho (spr-xs, spr-sm, spr-md, spr-lg); vira = olhando para a esquerda
   function spr(id, cls, vira) {
-    return '<img class="spr ' + (cls || 'spr-sm') + (vira ? ' vira' : '') + '" src="personagens/' + persona(id) + '.gif" alt="" width="24" height="32" decoding="async">';
+    return '<img class="spr ' + (cls || 'spr-sm') + (vira ? ' vira' : '') + '" src="personagens/' + persona(id) + '.gif?v=' + PERSONAGENS_V + '" alt="" width="24" height="32" decoding="async">';
   }
   // nível: 1 a cada 10 vitórias no geral; a barra mostra quanto falta para o próximo
   function nivel(v) { return { n: Math.floor(v / 10) + 1, pct: (v % 10) * 10 }; }
@@ -1492,7 +1494,7 @@
     h += '<div class="row adm-top"><button class="btn ghost" type="button" data-act="jogVoltar">VOLTAR</button>' +
       '<div class="lbl">JOGADOR</div></div>';
     h += '<div class="box profile-head">' +
-      '<div class="perfil-cena"><img src="personagens/' + persona(id) + '-perfil.gif" alt="' + esc(nome) + ', personagem em pixel art" width="320" height="320"></div>' +
+      '<div class="perfil-cena"><img src="personagens/' + persona(id) + '-perfil.gif?v=' + PERSONAGENS_V + '" alt="' + esc(nome) + ', personagem em pixel art" width="320" height="320"></div>' +
       '<div class="profile-name rgb glow">' + esc(nome) + '</div>' + xpBar(mine.rank);
     // é pato de alguém no geral? tem patos no geral?
     patos('geral').forEach(function (x) {
